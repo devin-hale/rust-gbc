@@ -294,6 +294,11 @@ impl Instruction {
         i.op = Operation::STOP;
         i
     }
+    pub fn halt() -> Instruction {
+        let mut i = Instruction::nop();
+        i.op = Operation::HALT;
+        i
+    }
     pub fn new() -> Instruction {
         Instruction::nop()
     }
@@ -329,7 +334,7 @@ pub enum InstructionError {
 pub fn decode(opcode: u8) -> Result<Instruction, InstructionError> {
     match (opcode >> 6) & 0x3 {
         0x00 => Ok(decode_block_0(opcode)?),
-        //0x01 => (),
+        0x01 => Ok(decode_block_1(opcode)?),
         //0x10 => (),
         //0x11 => (),
         _ => Err(InstructionError::Unknown),
@@ -540,6 +545,227 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
     }
 
     Err(InstructionError::Unimplemented(opcode))
+}
+
+fn decode_block_1(opcode: u8) -> Result<Instruction, InstructionError> {
+    if opcode == 0b0111_0110 {
+        return Ok(Instruction::halt());
+    } else {
+        // ld r8, r8
+        let dest = (opcode & 0b0011_1000) >> 4;
+        let dest = R8::from_u8(dest)?;
+        let src = (opcode & 0b0000_0111) >> 4;
+        let src = R8::from_u8(src)?;
+
+        let mut i = Instruction::new();
+        i.op = Operation::LD;
+        i.operand_0 = Some(Operand::Direct(Src::R8(dest)));
+        i.operand_1 = Some(Operand::Direct(Src::R8(src)));
+
+        i.length = 1;
+        if dest == R8::HlMem || src == R8::HlMem {
+            i.cycles = 8;
+        } else {
+            i.cycles = 4;
+        }
+
+        return Ok(i);
+    }
+}
+
+fn decode_block_2(opcode: u8) -> Result<Instruction, InstructionError> {
+    let mut i = Instruction::new();
+    let operand = R8::from_u8(opcode & 0b0000_0111)?;
+    i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
+    i.operand_1 = Some(Operand::Direct(Src::R8(operand)));
+
+    if operand == R8::HlMem {
+        i.cycles = 8;
+    } else {
+        i.cycles = 4;
+    }
+    match (opcode & 0b1111_1000) >> 3 {
+        // add a, r8
+        0b1_0000 => {
+            i.op = Operation::ADD;
+            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+            i.flags.set(Flag::Negative, FlagBehavior::Reset);
+            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            return Ok(i);
+        }
+        // adc a, r8
+        0b1_0001 => {
+            i.op = Operation::ADC;
+            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+            i.flags.set(Flag::Negative, FlagBehavior::Reset);
+            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            return Ok(i);
+        }
+        // sub a, r8
+        0b1_0010 => {
+            i.op = Operation::SUB;
+            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+            i.flags.set(Flag::Negative, FlagBehavior::Set);
+            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            return Ok(i);
+        }
+        // sbc a, r8
+        0b1_0011 => {
+            i.op = Operation::SBC;
+            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+            i.flags.set(Flag::Negative, FlagBehavior::Set);
+            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            return Ok(i);
+        }
+        // and a, r8
+        0b1_0100 => {
+            i.op = Operation::AND;
+            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+            i.flags.set(Flag::Negative, FlagBehavior::Reset);
+            i.flags.set(Flag::HalfCarry, FlagBehavior::Set);
+            i.flags.set(Flag::Carry, FlagBehavior::Reset);
+            return Ok(i);
+        }
+        // xor a, r8
+        0b1_0101 => {
+            i.op = Operation::XOR;
+            i.op = Operation::AND;
+            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+            i.flags.set(Flag::Negative, FlagBehavior::Reset);
+            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
+            i.flags.set(Flag::Carry, FlagBehavior::Reset);
+            return Ok(i);
+        }
+        // or a, r8
+        0b1_0110 => {
+            i.op = Operation::OR;
+            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+            i.flags.set(Flag::Negative, FlagBehavior::Reset);
+            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
+            i.flags.set(Flag::Carry, FlagBehavior::Reset);
+            return Ok(i);
+        }
+        // cp a, r8
+        0b1_0111 => {
+            i.op = Operation::CP;
+            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+            i.flags.set(Flag::Negative, FlagBehavior::Set);
+            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            return Ok(i);
+        }
+        _ => (),
+    }
+
+    Err(InstructionError::Unimplemented(opcode))
+}
+
+#[allow(unused_variables)]
+fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
+    // Prefix
+    if opcode == 0b1100_1011 {
+        return Err(InstructionError::Unimplemented(opcode));
+    }
+
+    let mut i = Instruction::new();
+    if (opcode & 0b111) == 0b110 {
+        i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
+        i.operand_0 = Some(Operand::Direct(Src::Imm8));
+        i.length = 2;
+        i.cycles = 8;
+
+        match (opcode & 0b0011_1000) >> 3 {
+            // add a, imm8
+            0 => {
+                i.op = Operation::ADD;
+                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+                i.flags.set(Flag::Negative, FlagBehavior::Reset);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            }
+            // adc a, imm8
+            0b1 => {
+                i.op = Operation::ADC;
+                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+                i.flags.set(Flag::Negative, FlagBehavior::Reset);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            }
+            // sub a, imm8
+            0b10 => {
+                i.op = Operation::SUB;
+                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+                i.flags.set(Flag::Negative, FlagBehavior::Set);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            }
+            // sbc a, imm8
+            0b11 => {
+                i.op = Operation::SBC;
+                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+                i.flags.set(Flag::Negative, FlagBehavior::Set);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            }
+            // and a, imm8
+            0b100 => {
+                i.op = Operation::AND;
+                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+                i.flags.set(Flag::Negative, FlagBehavior::Reset);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Set);
+                i.flags.set(Flag::Carry, FlagBehavior::Reset);
+            }
+            // xor a, imm8
+            0b101 => {
+                i.op = Operation::XOR;
+                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+                i.flags.set(Flag::Negative, FlagBehavior::Reset);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
+                i.flags.set(Flag::Carry, FlagBehavior::Reset);
+            }
+            // or a, imm8
+            0b110 => {
+                i.op = Operation::OR;
+                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+                i.flags.set(Flag::Negative, FlagBehavior::Reset);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
+                i.flags.set(Flag::Carry, FlagBehavior::Reset);
+            }
+            // cp a, imm8
+            0b111 => {
+                i.op = Operation::CP;
+                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
+                i.flags.set(Flag::Negative, FlagBehavior::Set);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            }
+            _ => (),
+        }
+
+        match opcode {
+            // ld [c], a
+            0b1110_0010 => {}
+            // ld [imm8], a
+            0b1110_0000 => {}
+            // ld [imm16], a
+            0b1110_1010 => {}
+            // ldh a, [c]
+            // ldh a, [imm8]
+            // ld a, [imm16]
+            // di
+            0b1111_0011 => {}
+            // ei
+            0b1111_1011 => {}
+            _ => ()
+        }
+
+        return Ok(i);
+    }
+    Err(InstructionError::Unknown)
 }
 
 #[cfg(test)]
