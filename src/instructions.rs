@@ -142,6 +142,18 @@ pub enum R16Stk {
     AF,
 }
 
+impl R16Stk {
+    fn from_u8(b: u8) -> Result<R16Stk, InstructionError> {
+        match b {
+            0 => Ok(R16Stk::BC),
+            1 => Ok(R16Stk::DE),
+            2 => Ok(R16Stk::HL),
+            3 => Ok(R16Stk::AF),
+            _ => Err(InstructionError::InvalidR16Stk(b)),
+        }
+    }
+}
+
 impl Display for R16Stk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let r16: &'static str = match self {
@@ -307,6 +319,7 @@ pub enum Operation {
     BIT,
     RES,
     SET,
+    PREFIX,
 }
 
 impl Display for Operation {
@@ -356,6 +369,7 @@ impl Display for Operation {
             Operation::BIT => "bit",
             Operation::RES => "res",
             Operation::SET => "set",
+            Operation::PREFIX => "cb prefix",
         };
         write!(f, "{}", op)
     }
@@ -497,6 +511,9 @@ pub enum InstructionError {
 
     #[error("invalid R16Mem value '{0}'")]
     InvalidR16Mem(u8),
+
+    #[error("invalid R16Stk value '{0}'")]
+    InvalidR16Stk(u8),
 
     #[error("invalid R8 value '{0}")]
     InvalidR8(u8),
@@ -857,12 +874,15 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
         return Err(InstructionError::InvalidOpCode(opcode));
     }
 
+    let mut i = Instruction::new();
     // Prefix
     if opcode == 0b1100_1011 {
-        return Err(InstructionError::Unimplemented(opcode));
+        i.op = Operation::PREFIX;
+        i.length = 1;
+        i.cycles = 4;
+        return Ok(i);
     }
 
-    let mut i = Instruction::new();
     if (opcode & 0b111) == 0b110 {
         i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
         i.operand_0 = Some(Operand::Direct(Src::Imm8));
@@ -938,34 +958,77 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
         }
 
         match opcode {
-            // ld [c], a
-            0b1110_0010 => {}
+            // ldh [c], a
+            0b1110_0010 => {
+                i.op = Operation::LDH;
+                i.operand_0 = Some(Operand::Mem(Src::R8(R8::C)));
+                i.operand_1 = Some(Operand::Direct(Src::R8(R8::A)));
+                i.length = 1;
+                i.cycles = 8;
+                return Ok(i);
+            }
 
             // ld [imm8], a
-            0b1110_0000 => {}
+            0b1110_0000 => {
+                i.op = Operation::LD;
+                i.operand_0 = Some(Operand::Mem(Src::Imm8));
+                i.operand_1 = Some(Operand::Direct(Src::R8(R8::A)));
+                i.length = 2;
+                i.cycles = 12;
+                return Ok(i);
+            }
 
             // ld [imm16], a
-            0b1110_1010 => {}
+            0b1110_1010 => {
+                i.op = Operation::LD;
+                i.operand_0 = Some(Operand::Mem(Src::Imm16));
+                i.operand_1 = Some(Operand::Direct(Src::R8(R8::A)));
+                i.length = 3;
+                i.cycles = 16;
+                return Ok(i);
+            }
 
             // ldh a, [c]
-            0b1111_0010 => {}
+            0b1111_0010 => {
+                i.op = Operation::LDH;
+                i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
+                i.operand_1 = Some(Operand::Mem(Src::R8(R8::C)));
+                i.length = 1;
+                i.cycles = 8;
+                return Ok(i);
+            }
 
             // ldh a, [imm8]
-            0b1111_0000 => {}
+            0b1111_0000 => {
+                i.op = Operation::LDH;
+                i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
+                i.operand_1 = Some(Operand::Mem(Src::Imm8));
+                i.length = 2;
+                i.cycles = 12;
+                return Ok(i);
+            }
 
             // ld a, [imm16]
             0b1111_1010 => {
+                i.op = Operation::LD;
+                i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
+                i.operand_1 = Some(Operand::Mem(Src::Imm16));
+                i.length = 3;
+                i.cycles = 16;
                 return Ok(i);
             }
 
             // add sp, imm8
             0b1110_1000 => {
+                i.op = Operation::ADD;
+                i.operand_0 = Some(Operand::Direct(Src::R16(R16::SP)));
+                i.operand_1 = Some(Operand::Direct(Src::Imm8));
+                i.length = 2;
+                i.cycles = 16;
                 i.flags.set(Flag::Zero, FlagBehavior::Reset);
                 i.flags.set(Flag::Negative, FlagBehavior::Reset);
                 i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
                 i.flags.set(Flag::Carry, FlagBehavior::Dependent);
-                i.length = 2;
-                i.cycles = 16;
                 return Ok(i);
             }
 
@@ -987,24 +1050,141 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
 
             // ld sp, hl
             0b1111_1001 => {
+                i.op = Operation::LD;
+                i.operand_0 = Some(Operand::Direct(Src::R16(R16::SP)));
+                i.operand_1 = Some(Operand::Direct(Src::R16(R16::HL)));
+                i.length = 1;
+                i.cycles = 8;
                 return Ok(i);
             }
 
             // di
             0b1111_0011 => {
+                i.op = Operation::DI;
+                i.length = 1;
+                i.cycles = 4;
                 return Ok(i);
             }
 
             // ei
             0b1111_1011 => {
+                i.op = Operation::EI;
+                i.length = 1;
+                i.cycles = 4;
                 return Ok(i);
             }
 
+            // ret
+            0b1100_1001 => {
+                i.op = Operation::RET;
+                i.length = 1;
+                i.cycles = 16;
+            }
+            // reti
+            0b1101_1001 => {
+                i.op = Operation::RET;
+                i.length = 1;
+                i.cycles = 16;
+            }
+
+            // jp imm16
+            0b1100_0011 => {
+                i.op = Operation::JP;
+                i.operand_0 = Some(Operand::Direct(Src::Imm16));
+                i.length = 3;
+                i.cycles = 16;
+                return Ok(i);
+            }
+            // jp hl
+            0b1110_1001 => {
+                i.op = Operation::JP;
+                i.operand_0 = Some(Operand::Direct(Src::R16(R16::HL)));
+                i.length = 3;
+                i.cycles = 16;
+                return Ok(i);
+            }
+
+            // call imm16
+            0b1100_1101 => {
+                i.op = Operation::CALL;
+                i.operand_0 = Some(Operand::Direct(Src::Imm16));
+                i.length = 3;
+                i.cycles = 24;
+                return Ok(i);
+            }
             _ => (),
         }
-
-        return Ok(i);
     }
+
+    let last_three = opcode & 0b111;
+    match last_three {
+        // ret cond
+        0b000 => {
+            i.op = Operation::RET;
+            let c = Cond::from_u8((opcode & 0b0001_1000) >> 3)?;
+            i.operand_0 = Some(Operand::Direct(Src::Cond(c)));
+            i.length = 1;
+            i.cycles = 8;
+            i.branch_cycles = 20;
+            return Ok(i);
+        }
+        // jp cond, imm16
+        0b010 => {
+            i.op = Operation::JP;
+            let c = Cond::from_u8((opcode & 0b0001_1000) >> 3)?;
+            i.operand_0 = Some(Operand::Direct(Src::Cond(c)));
+            i.operand_1 = Some(Operand::Direct(Src::Imm16));
+            i.length = 3;
+            i.cycles = 12;
+            i.branch_cycles = 16;
+            return Ok(i);
+        }
+        // call cond, imm16
+        0b100 => {
+            i.op = Operation::CALL;
+            let c = Cond::from_u8((opcode & 0b0001_1000) >> 3)?;
+            i.operand_0 = Some(Operand::Direct(Src::Cond(c)));
+            i.operand_1 = Some(Operand::Direct(Src::Imm16));
+            i.length = 3;
+            i.cycles = 12;
+            i.branch_cycles = 24;
+            return Ok(i);
+        }
+        // rst tgt3
+        0b111 => {
+            i.op = Operation::RST;
+            let t = Tgt3::new((opcode & 0b0011_1000) >> 3);
+            i.operand_0 = Some(Operand::Direct(Src::Tgt3(t)));
+            i.length = 1;
+            i.cycles = 16;
+            return Ok(i);
+        }
+        _ => (),
+    }
+
+    let last_four = opcode & 0b1111;
+    match last_four {
+        // pop r16stk
+        0b0001 => {
+            i.op = Operation::POP;
+            let r = R16Stk::from_u8((opcode & 0b0011_0000) >> 4)?;
+            i.operand_0 = Some(Operand::Direct(Src::R16Stk(r)));
+            i.length = 1;
+            i.cycles = 12;
+            return Ok(i);
+        }
+        // push r16stk
+        0b0101 => {
+            i.op = Operation::PUSH;
+            let r = R16Stk::from_u8((opcode & 0b0011_0000) >> 4)?;
+            i.operand_0 = Some(Operand::Direct(Src::R16Stk(r)));
+            i.length = 1;
+            i.cycles = 16;
+            return Ok(i);
+        }
+        _ => (),
+    }
+
     Err(InstructionError::Unknown)
 }
 
