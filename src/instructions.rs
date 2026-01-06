@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use thiserror::Error;
 
 pub enum Block {
@@ -14,6 +16,16 @@ pub enum Operand {
     Mem(Src),
 }
 
+impl Display for Operand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let o = match self {
+            Operand::Direct(s) => format!("{}", s),
+            Operand::Mem(s) => format!("[{}]", s),
+        };
+        write!(f, "{}", o)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Src {
     R8(R8),
@@ -25,6 +37,25 @@ pub enum Src {
     Tgt3(Tgt3),
     Imm8,
     Imm16,
+    Sum((Box<Src>, Box<Src>)),
+}
+
+impl Display for Src {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let src = match self {
+            Src::R8(r8) => format!("{}", r8),
+            Src::R16(r16) => format!("{}", r16),
+            Src::R16Stk(r16) => format!("{}", r16),
+            Src::R16Mem(r16) => format!("{}", r16),
+            Src::Cond(c) => format!("{}", c),
+            Src::B3(bi) => format!("{}", bi),
+            Src::Tgt3(t3) => format!("{}", t3),
+            Src::Imm8 => String::from("imm8"),
+            Src::Imm16 => String::from("imm16"),
+            Src::Sum((a, b)) => format!("{} + {}", *a, *b),
+        };
+        write!(f, "{}", src)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,6 +86,22 @@ impl R8 {
     }
 }
 
+impl Display for R8 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let r8: &'static str = match self {
+            R8::B => "b",
+            R8::C => "c",
+            R8::D => "d",
+            R8::E => "e",
+            R8::H => "h",
+            R8::L => "l",
+            R8::HlMem => "[hl]",
+            R8::A => "a",
+        };
+        write!(f, "{}", r8)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum R16 {
     BC,
@@ -75,12 +122,36 @@ impl R16 {
     }
 }
 
+impl Display for R16 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let r16: &'static str = match self {
+            R16::BC => "bc",
+            R16::DE => "de",
+            R16::HL => "hl",
+            R16::SP => "sp",
+        };
+        write!(f, "{}", r16)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum R16Stk {
     BC,
     DE,
     HL,
     AF,
+}
+
+impl Display for R16Stk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let r16: &'static str = match self {
+            R16Stk::BC => "bc",
+            R16Stk::DE => "de",
+            R16Stk::HL => "hl",
+            R16Stk::AF => "af",
+        };
+        write!(f, "{}", r16)
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -103,6 +174,18 @@ impl R16Mem {
     }
 }
 
+impl Display for R16Mem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let r16: &'static str = match self {
+            R16Mem::BC => "bc",
+            R16Mem::DE => "de",
+            R16Mem::HLI => "hl+",
+            R16Mem::HLD => "hl-",
+        };
+        write!(f, "{}", r16)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Cond {
     NZ,
@@ -120,6 +203,17 @@ impl Cond {
             3 => Ok(Cond::C),
             _ => Err(InstructionError::InvalidCond(b)),
         }
+    }
+}
+impl Display for Cond {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let r16: &'static str = match self {
+            Cond::NZ => "nz",
+            Cond::Z => "z",
+            Cond::NC => "nc",
+            Cond::C => "c",
+        };
+        write!(f, "{}", r16)
     }
 }
 
@@ -140,6 +234,12 @@ impl BitIndex {
     }
 }
 
+impl Display for BitIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.index)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Tgt3 {
     addr: u8,
@@ -152,6 +252,12 @@ impl Tgt3 {
 
     pub fn addr(&self) -> u8 {
         self.addr
+    }
+}
+
+impl Display for Tgt3 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.addr)
     }
 }
 
@@ -203,12 +309,76 @@ pub enum Operation {
     SET,
 }
 
+impl Display for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let op = match self {
+            Operation::NOP => "nop",
+            Operation::LD => "ld",
+            Operation::INC => "inc",
+            Operation::DEC => "dec",
+            Operation::ADD => "add",
+            Operation::RLCA => "rlca",
+            Operation::RRCA => "rrca",
+            Operation::RLA => "rla",
+            Operation::RRA => "rra",
+            Operation::DAA => "daa",
+            Operation::CPL => "cpl",
+            Operation::SCF => "scf",
+            Operation::CCF => "ccf",
+            Operation::JR => "jr",
+            Operation::STOP => "stop",
+            Operation::HALT => "halt",
+            Operation::ADC => "adc",
+            Operation::SUB => "sub",
+            Operation::SBC => "sbc",
+            Operation::AND => "and",
+            Operation::XOR => "xor",
+            Operation::OR => "or",
+            Operation::CP => "cp",
+            Operation::RET => "ret",
+            Operation::RETI => "reti",
+            Operation::JP => "jp",
+            Operation::CALL => "call",
+            Operation::RST => "rst",
+            Operation::POP => "pop",
+            Operation::PUSH => "push",
+            Operation::LDH => "ldh",
+            Operation::DI => "di",
+            Operation::EI => "ei",
+            Operation::RR => "rr",
+            Operation::RLC => "rlc",
+            Operation::RRC => "rrc",
+            Operation::RL => "rl",
+            Operation::SLA => "sla",
+            Operation::SRA => "sra",
+            Operation::SWAP => "swap",
+            Operation::SRL => "srl",
+            Operation::BIT => "bit",
+            Operation::RES => "res",
+            Operation::SET => "set",
+        };
+        write!(f, "{}", op)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FlagBehavior {
     Unmodified,
     Set,
     Reset,
     Dependent,
+}
+
+impl Display for FlagBehavior {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let b = match self {
+            FlagBehavior::Unmodified => "-",
+            FlagBehavior::Set => "1",
+            FlagBehavior::Reset => "0",
+            FlagBehavior::Dependent => "D",
+        };
+        write!(f, "{}", b)
+    }
 }
 
 pub enum Flag {
@@ -262,6 +432,16 @@ impl FlagSet {
             Flag::HalfCarry => self.half_carry = fb,
             Flag::Carry => self.carry = fb,
         }
+    }
+}
+
+impl Display for FlagSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[z:{} n:{} hc:{} c:{}]",
+            self.zero, self.negative, self.half_carry, self.carry
+        )
     }
 }
 
@@ -326,6 +506,9 @@ pub enum InstructionError {
 
     #[error("unimplemented instruction '{0:b}")]
     Unimplemented(u8),
+
+    #[error("invalid opcode '{0:x}")]
+    InvalidOpCode(u8),
 
     #[error("unknown instruction error")]
     Unknown,
@@ -664,8 +847,16 @@ fn decode_block_2(opcode: u8) -> Result<Instruction, InstructionError> {
     Err(InstructionError::Unimplemented(opcode))
 }
 
+const INVALID_OPCODES: [u8; 11] = [
+    0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
+];
+
 #[allow(unused_variables)]
 fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
+    if INVALID_OPCODES.contains(&opcode) {
+        return Err(InstructionError::InvalidOpCode(opcode));
+    }
+
     // Prefix
     if opcode == 0b1100_1011 {
         return Err(InstructionError::Unimplemented(opcode));
@@ -749,18 +940,67 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
         match opcode {
             // ld [c], a
             0b1110_0010 => {}
+
             // ld [imm8], a
             0b1110_0000 => {}
+
             // ld [imm16], a
             0b1110_1010 => {}
+
             // ldh a, [c]
+            0b1111_0010 => {}
+
             // ldh a, [imm8]
+            0b1111_0000 => {}
+
             // ld a, [imm16]
+            0b1111_1010 => {
+                return Ok(i);
+            }
+
+            // add sp, imm8
+            0b1110_1000 => {
+                i.flags.set(Flag::Zero, FlagBehavior::Reset);
+                i.flags.set(Flag::Negative, FlagBehavior::Reset);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+                i.length = 2;
+                i.cycles = 16;
+                return Ok(i);
+            }
+
+            // ld hl, sp + imm8
+            0b1111_1000 => {
+                i.op = Operation::LD;
+                i.operand_0 = Some(Operand::Direct(Src::R16(R16::HL)));
+                let sp = Box::new(Src::R16(R16::SP));
+                let imm8 = Box::new(Src::Imm8);
+                i.operand_1 = Some(Operand::Direct(Src::Sum((sp, imm8))));
+                i.length = 2;
+                i.cycles = 12;
+                i.flags.set(Flag::Zero, FlagBehavior::Reset);
+                i.flags.set(Flag::Negative, FlagBehavior::Reset);
+                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
+                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+                return Ok(i);
+            }
+
+            // ld sp, hl
+            0b1111_1001 => {
+                return Ok(i);
+            }
+
             // di
-            0b1111_0011 => {}
+            0b1111_0011 => {
+                return Ok(i);
+            }
+
             // ei
-            0b1111_1011 => {}
-            _ => ()
+            0b1111_1011 => {
+                return Ok(i);
+            }
+
+            _ => (),
         }
 
         return Ok(i);

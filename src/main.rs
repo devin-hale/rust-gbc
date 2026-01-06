@@ -6,5 +6,5 @@ mod cpu;
 mod instructions;
 
 fn main() {
-    println!("Hello, world!");
+    println!("{}", instructions::R8::HlMem);
 }
