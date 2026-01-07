@@ -1,7 +1,9 @@
 pub struct Register {
+    label: Option<String>,
     data: u16,
 }
 
+#[derive(Clone, Copy)]
 pub enum Level {
     Low,
     High,
@@ -9,14 +11,25 @@ pub enum Level {
 
 impl Register {
     pub fn new() -> Register {
-        Register { data: 0 }
+        Register {
+            data: 0,
+            label: None,
+        }
     }
 
     pub fn from_word(data: u16) -> Register {
-        Register { data }
+        Register { data, label: None }
     }
 
-    pub fn data(&self) -> u16 {
+    pub fn set_label(&mut self, l: String) {
+        self.label = Some(l)
+    }
+
+    pub fn label(&self) -> Option<String> {
+        self.label.clone()
+    }
+
+    pub fn val(&self) -> u16 {
         self.data
     }
 
@@ -28,6 +41,13 @@ impl Register {
         ((self.data & 0xFF00) >> 8) as u8
     }
 
+    pub fn read_byte(&self, level: Level) -> u8 {
+        match level {
+            Level::Low => self.low(),
+            Level::High => self.high(),
+        }
+    }
+
     pub fn write_byte(&mut self, level: Level, data: u8) {
         match level {
             Level::Low => self.data = (self.data & 0xFF00) | data as u16,
@@ -35,30 +55,16 @@ impl Register {
         }
     }
 
-    pub fn write_word(&mut self, data: u16) {
+    pub fn write(&mut self, data: u16) {
         self.data = data
-    }
-}
-
-pub struct ProgramCounter {
-    data: u16,
-}
-
-impl ProgramCounter {
-    pub fn new() -> ProgramCounter {
-        ProgramCounter { data: 0 }
-    }
-
-    pub fn current(&self) -> u16 {
-        self.data
     }
 
     pub fn inc(&mut self) {
-        self.data += 1;
+        self.data += 1
     }
 
-    pub fn set(&mut self, data: u16) {
-        self.data = data;
+    pub fn dec(&mut self) {
+        self.data -= 1
     }
 }
 
@@ -69,11 +75,11 @@ mod tests {
     #[test]
     fn read_word() {
         let r = Register::new();
-        assert_eq!(0, r.data());
+        assert_eq!(0, r.val());
 
         let word = 0xFE;
         let r = Register::from_word(word);
-        assert_eq!(word, r.data());
+        assert_eq!(word, r.val());
     }
 
     #[test]
@@ -82,8 +88,8 @@ mod tests {
         let mut r = Register::from_word(word);
 
         let word = 0xBB;
-        r.write_word(word);
-        assert_eq!(word, r.data());
+        r.write(word);
+        assert_eq!(word, r.val());
     }
 
     #[test]
@@ -107,7 +113,7 @@ mod tests {
 
         let expected_word = 0xFEBB;
 
-        assert_eq!(expected_word, r.data());
+        assert_eq!(expected_word, r.val());
         assert_eq!(byte, r.low());
     }
 
@@ -121,7 +127,7 @@ mod tests {
 
         let expected_word = 0xBBFE;
 
-        assert_eq!(expected_word, r.data());
+        assert_eq!(expected_word, r.val());
         assert_eq!(byte, r.high());
     }
 }

@@ -10,49 +10,64 @@ pub enum Block {
     Prefix,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Operand {
-    Direct(Src),
-    Mem(Src),
+    B,
+    C,
+    D,
+    E,
+    H,
+    L,
+    A,
+    BC,
+    DE,
+    HL,
+    SP,
+    AF,
+    HLI,
+    HLD,
+    Imm8,
+    Imm16,
+    Cond(Cond),
+    B3(BitIndex),
+    Tgt3(Tgt3),
+    Sum((Box<Operand>, Box<Operand>)),
+    Mem(Box<Operand>),
+}
+
+impl Operand {
+    fn to_mem(&self) -> Operand {
+        match self {
+            Operand::Mem(_) => self.clone(),
+            _ => Operand::Mem(Box::new(self.clone())),
+        }
+    }
 }
 
 impl Display for Operand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let o = match self {
-            Operand::Direct(s) => format!("{}", s),
-            Operand::Mem(s) => format!("[{}]", s),
-        };
-        write!(f, "{}", o)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Src {
-    R8(R8),
-    R16(R16),
-    R16Stk(R16Stk),
-    R16Mem(R16Mem),
-    Cond(Cond),
-    B3(BitIndex),
-    Tgt3(Tgt3),
-    Imm8,
-    Imm16,
-    Sum((Box<Src>, Box<Src>)),
-}
-
-impl Display for Src {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let src = match self {
-            Src::R8(r8) => format!("{}", r8),
-            Src::R16(r16) => format!("{}", r16),
-            Src::R16Stk(r16) => format!("{}", r16),
-            Src::R16Mem(r16) => format!("{}", r16),
-            Src::Cond(c) => format!("{}", c),
-            Src::B3(bi) => format!("{}", bi),
-            Src::Tgt3(t3) => format!("{}", t3),
-            Src::Imm8 => String::from("imm8"),
-            Src::Imm16 => String::from("imm16"),
-            Src::Sum((a, b)) => format!("{} + {}", *a, *b),
+            Operand::B => format!("b"),
+            Operand::C => format!("c"),
+            Operand::D => format!("d"),
+            Operand::E => format!("e"),
+            Operand::H => format!("h"),
+            Operand::L => format!("l"),
+            Operand::A => format!("a"),
+            Operand::BC => format!("bc"),
+            Operand::DE => format!("de"),
+            Operand::HL => format!("hl"),
+            Operand::SP => format!("sp"),
+            Operand::AF => format!("af"),
+            Operand::HLI => format!("hl+"),
+            Operand::HLD => format!("hl-"),
+            Operand::Cond(c) => format!("{}", c),
+            Operand::B3(bi) => format!("{}", bi),
+            Operand::Tgt3(t3) => format!("{}", t3),
+            Operand::Imm8 => String::from("imm8"),
+            Operand::Imm16 => String::from("imm16"),
+            Operand::Sum((a, b)) => format!("{} + {}", *a, *b),
+            Operand::Mem(b) => format!("{}", b),
         };
         write!(f, "{}", src)
     }
@@ -84,6 +99,19 @@ impl R8 {
             _ => Err(InstructionError::InvalidR8(b)),
         }
     }
+
+    fn to_operand(&self) -> Operand {
+        match self {
+            R8::B => Operand::B,
+            R8::C => Operand::C,
+            R8::D => Operand::D,
+            R8::E => Operand::E,
+            R8::H => Operand::H,
+            R8::L => Operand::L,
+            R8::HlMem => Operand::HL.to_mem(),
+            R8::A => Operand::A,
+        }
+    }
 }
 
 impl Display for R8 {
@@ -102,7 +130,7 @@ impl Display for R8 {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum R16 {
     BC,
     DE,
@@ -120,6 +148,15 @@ impl R16 {
             _ => Err(InstructionError::InvalidR16(b)),
         }
     }
+
+    fn to_operand(&self) -> Operand {
+        match self {
+            R16::BC => Operand::BC,
+            R16::DE => Operand::DE,
+            R16::HL => Operand::HL,
+            R16::SP => Operand::SP,
+        }
+    }
 }
 
 impl Display for R16 {
@@ -134,7 +171,7 @@ impl Display for R16 {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum R16Stk {
     BC,
     DE,
@@ -152,6 +189,15 @@ impl R16Stk {
             _ => Err(InstructionError::InvalidR16Stk(b)),
         }
     }
+
+    fn to_operand(&self) -> Operand {
+        match self {
+            R16Stk::BC => Operand::BC,
+            R16Stk::DE => Operand::DE,
+            R16Stk::HL => Operand::HL,
+            R16Stk::AF => Operand::AF,
+        }
+    }
 }
 
 impl Display for R16Stk {
@@ -166,7 +212,7 @@ impl Display for R16Stk {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum R16Mem {
     BC,
     DE,
@@ -184,6 +230,15 @@ impl R16Mem {
             _ => Err(InstructionError::InvalidR16Mem(b)),
         }
     }
+
+    fn to_operand(&self) -> Operand {
+        match self {
+            R16Mem::BC => Operand::BC,
+            R16Mem::DE => Operand::BC,
+            R16Mem::HLI => Operand::HLI,
+            R16Mem::HLD => Operand::HLD,
+        }
+    }
 }
 
 impl Display for R16Mem {
@@ -198,7 +253,7 @@ impl Display for R16Mem {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Cond {
     NZ,
     Z,
@@ -216,6 +271,15 @@ impl Cond {
             _ => Err(InstructionError::InvalidCond(b)),
         }
     }
+
+    fn to_operand(&self) -> Operand {
+        match self {
+            Cond::NZ => Operand::Cond(Cond::NZ),
+            Cond::Z => Operand::Cond(Cond::Z),
+            Cond::NC => Operand::Cond(Cond::NC),
+            Cond::C => Operand::Cond(Cond::C),
+        }
+    }
 }
 impl Display for Cond {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -229,7 +293,7 @@ impl Display for Cond {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BitIndex {
     index: u8,
 }
@@ -244,6 +308,10 @@ impl BitIndex {
     pub fn index(&self) -> u8 {
         self.index
     }
+
+    pub fn to_operand(&self) -> Operand {
+        Operand::B3(self.clone())
+    }
 }
 
 impl Display for BitIndex {
@@ -252,7 +320,7 @@ impl Display for BitIndex {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tgt3 {
     addr: u8,
 }
@@ -264,6 +332,10 @@ impl Tgt3 {
 
     pub fn addr(&self) -> u8 {
         self.addr
+    }
+
+    pub fn to_operand(&self) -> Operand {
+        Operand::Tgt3(self.clone())
     }
 }
 
@@ -461,8 +533,8 @@ impl Display for FlagSet {
 
 pub struct Instruction {
     op: Operation,
-    operand_0: Option<Operand>,
-    operand_1: Option<Operand>,
+    dest: Option<Operand>,
+    src: Option<Operand>,
 
     length: u8,
     cycles: u8,
@@ -475,8 +547,8 @@ impl Instruction {
     pub fn nop() -> Instruction {
         Instruction {
             op: Operation::NOP,
-            operand_0: None,
-            operand_1: None,
+            dest: None,
+            src: None,
             length: 1,
             cycles: 4,
             branch_cycles: 0,
@@ -501,6 +573,17 @@ impl Instruction {
     }
     pub fn flags_mut(&mut self) -> &mut FlagSet {
         &mut self.flags
+    }
+    pub fn op(&self) -> Operation {
+        self.op
+    }
+
+    pub fn dest(&self) -> Option<Operand> {
+        self.dest.clone()
+    }
+
+    pub fn src(&self) -> Option<Operand> {
+        self.src.clone()
     }
 }
 
@@ -535,8 +618,15 @@ pub fn decode(opcode: u8) -> Result<Instruction, InstructionError> {
     match (opcode >> 6) & 0x3 {
         0x00 => Ok(decode_block_0(opcode)?),
         0x01 => Ok(decode_block_1(opcode)?),
-        //0x10 => (),
-        //0x11 => (),
+        0x10 => Ok(decode_block_2(opcode)?),
+        0x11 => {
+            let i = decode_block_3(opcode)?;
+            if i.op == Operation::PREFIX {
+                return Ok(decode_prefix(opcode)?);
+            } else {
+                return Ok(i);
+            }
+        }
         _ => Err(InstructionError::Unknown),
     }
 }
@@ -557,8 +647,8 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         0b0001 => {
             i.op = Operation::LD;
             let dest = R16::from_u8((opcode & 0b0011_0000) >> 4)?;
-            i.operand_0 = Some(Operand::Direct(Src::R16(dest)));
-            i.operand_1 = Some(Operand::Direct(Src::Imm16));
+            i.dest = Some(dest.to_operand());
+            i.src = Some(Operand::Imm16);
             i.length = 3;
             i.cycles = 12;
             return Ok(i);
@@ -567,8 +657,8 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         0b0010 => {
             i.op = Operation::LD;
             let dest = R16Mem::from_u8((opcode & 0b0011_0000) >> 4)?;
-            i.operand_0 = Some(Operand::Mem(Src::R16Mem(dest)));
-            i.operand_1 = Some(Operand::Direct(Src::R8(R8::A)));
+            i.dest = Some(dest.to_operand().to_mem());
+            i.src = Some(R8::A.to_operand());
             i.length = 1;
             i.cycles = 8;
             return Ok(i);
@@ -577,8 +667,8 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         0b1010 => {
             i.op = Operation::LD;
             let dest = R16Mem::from_u8((opcode & 0b0011_0000) >> 4)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
-            i.operand_1 = Some(Operand::Mem(Src::R16Mem(dest)));
+            i.dest = Some(R8::A.to_operand());
+            i.src = Some(dest.to_operand().to_mem());
             i.length = 1;
             i.cycles = 8;
             return Ok(i);
@@ -589,8 +679,8 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             if dest == 0b00 {
                 let dest = R16Mem::from_u8(dest)?;
                 i.op = Operation::LD;
-                i.operand_0 = Some(Operand::Mem(Src::Imm16));
-                i.operand_1 = Some(Operand::Direct(Src::R16(R16::SP)));
+                i.dest = Some(Operand::Imm16.to_mem());
+                i.src = Some(R16::SP.to_operand());
                 i.length = 3;
                 i.cycles = 20;
                 return Ok(i);
@@ -601,7 +691,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         0b0011 => {
             i.op = Operation::INC;
             let r = R16::from_u8((opcode & 0b0011_0000) >> 4)?;
-            i.operand_0 = Some(Operand::Direct(Src::R16(r)));
+            i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 8;
             return Ok(i);
@@ -610,7 +700,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         0b1011 => {
             i.op = Operation::DEC;
             let r = R16::from_u8((opcode & 0b0011_0000) >> 4)?;
-            i.operand_0 = Some(Operand::Direct(Src::R16(r)));
+            i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 8;
             return Ok(i);
@@ -619,8 +709,8 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         0b1001 => {
             i.op = Operation::ADD;
             let r = R16::from_u8((opcode & 0b0011_0000) >> 4)?;
-            i.operand_0 = Some(Operand::Direct(Src::R16(R16::HL)));
-            i.operand_1 = Some(Operand::Direct(Src::R16(r)));
+            i.dest = Some(R16::HL.to_operand());
+            i.src = Some(r.to_operand());
             i.length = 1;
             i.cycles = 8;
             i.flags.set(Flag::Negative, FlagBehavior::Reset);
@@ -637,7 +727,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         0b100 => {
             i.op = Operation::INC;
             let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 4;
             i.flags.set(Flag::Zero, FlagBehavior::Dependent);
@@ -650,7 +740,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         0b101 => {
             i.op = Operation::DEC;
             let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 4;
             i.flags.set(Flag::Zero, FlagBehavior::Dependent);
@@ -663,8 +753,8 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         0b110 => {
             i.op = Operation::LD;
             let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
-            i.operand_1 = Some(Operand::Direct(Src::Imm8));
+            i.dest = Some(r.to_operand());
+            i.src = Some(Operand::Imm8);
             i.length = 2;
             match r {
                 R8::HlMem => i.cycles = 12,
@@ -679,7 +769,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
                 // jr imm8
                 0b11 => {
                     i.op = Operation::JR;
-                    i.operand_0 = Some(Operand::Direct(Src::Imm8));
+                    i.dest = Some(Operand::Imm8);
                     i.length = 2;
                     i.cycles = 12;
                     return Ok(i);
@@ -688,8 +778,8 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
                 _ => {
                     i.op = Operation::JR;
                     let c = Cond::from_u8(bits_43)?;
-                    i.operand_0 = Some(Operand::Direct(Src::Cond(c)));
-                    i.operand_1 = Some(Operand::Direct(Src::Imm8));
+                    i.dest = Some(Operand::Cond(c));
+                    i.src = Some(Operand::Imm8);
                     i.length = 2;
                     i.cycles = 8;
                     i.branch_cycles = 12;
@@ -759,8 +849,8 @@ fn decode_block_1(opcode: u8) -> Result<Instruction, InstructionError> {
 
         let mut i = Instruction::new();
         i.op = Operation::LD;
-        i.operand_0 = Some(Operand::Direct(Src::R8(dest)));
-        i.operand_1 = Some(Operand::Direct(Src::R8(src)));
+        i.dest = Some(dest.to_operand());
+        i.src = Some(src.to_operand());
 
         i.length = 1;
         if dest == R8::HlMem || src == R8::HlMem {
@@ -776,8 +866,8 @@ fn decode_block_1(opcode: u8) -> Result<Instruction, InstructionError> {
 fn decode_block_2(opcode: u8) -> Result<Instruction, InstructionError> {
     let mut i = Instruction::new();
     let operand = R8::from_u8(opcode & 0b0000_0111)?;
-    i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
-    i.operand_1 = Some(Operand::Direct(Src::R8(operand)));
+    i.dest = Some(R8::A.to_operand());
+    i.src = Some(operand.to_operand());
 
     if operand == R8::HlMem {
         i.cycles = 8;
@@ -884,8 +974,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
     }
 
     if (opcode & 0b111) == 0b110 {
-        i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
-        i.operand_0 = Some(Operand::Direct(Src::Imm8));
+        i.dest = Some(R8::A.to_operand());
+        i.dest = Some(Operand::Imm8);
         i.length = 2;
         i.cycles = 8;
 
@@ -961,8 +1051,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // ldh [c], a
             0b1110_0010 => {
                 i.op = Operation::LDH;
-                i.operand_0 = Some(Operand::Mem(Src::R8(R8::C)));
-                i.operand_1 = Some(Operand::Direct(Src::R8(R8::A)));
+                i.dest = Some(R8::C.to_operand().to_mem());
+                i.src = Some(R8::A.to_operand());
                 i.length = 1;
                 i.cycles = 8;
                 return Ok(i);
@@ -971,8 +1061,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // ld [imm8], a
             0b1110_0000 => {
                 i.op = Operation::LD;
-                i.operand_0 = Some(Operand::Mem(Src::Imm8));
-                i.operand_1 = Some(Operand::Direct(Src::R8(R8::A)));
+                i.dest = Some(Operand::Imm8.to_mem());
+                i.src = Some(R8::A.to_operand());
                 i.length = 2;
                 i.cycles = 12;
                 return Ok(i);
@@ -981,8 +1071,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // ld [imm16], a
             0b1110_1010 => {
                 i.op = Operation::LD;
-                i.operand_0 = Some(Operand::Mem(Src::Imm16));
-                i.operand_1 = Some(Operand::Direct(Src::R8(R8::A)));
+                i.dest = Some(Operand::Imm16.to_mem());
+                i.src = Some(R8::A.to_operand());
                 i.length = 3;
                 i.cycles = 16;
                 return Ok(i);
@@ -991,8 +1081,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // ldh a, [c]
             0b1111_0010 => {
                 i.op = Operation::LDH;
-                i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
-                i.operand_1 = Some(Operand::Mem(Src::R8(R8::C)));
+                i.dest = Some(R8::A.to_operand());
+                i.src = Some(R8::C.to_operand().to_mem());
                 i.length = 1;
                 i.cycles = 8;
                 return Ok(i);
@@ -1001,8 +1091,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // ldh a, [imm8]
             0b1111_0000 => {
                 i.op = Operation::LDH;
-                i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
-                i.operand_1 = Some(Operand::Mem(Src::Imm8));
+                i.dest = Some(R8::A.to_operand());
+                i.src = Some(Operand::Imm8.to_mem());
                 i.length = 2;
                 i.cycles = 12;
                 return Ok(i);
@@ -1011,8 +1101,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // ld a, [imm16]
             0b1111_1010 => {
                 i.op = Operation::LD;
-                i.operand_0 = Some(Operand::Direct(Src::R8(R8::A)));
-                i.operand_1 = Some(Operand::Mem(Src::Imm16));
+                i.dest = Some(R8::A.to_operand());
+                i.src = Some(Operand::Imm16.to_mem());
                 i.length = 3;
                 i.cycles = 16;
                 return Ok(i);
@@ -1021,8 +1111,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // add sp, imm8
             0b1110_1000 => {
                 i.op = Operation::ADD;
-                i.operand_0 = Some(Operand::Direct(Src::R16(R16::SP)));
-                i.operand_1 = Some(Operand::Direct(Src::Imm8));
+                i.dest = Some(R16::SP.to_operand());
+                i.src = Some(Operand::Imm8);
                 i.length = 2;
                 i.cycles = 16;
                 i.flags.set(Flag::Zero, FlagBehavior::Reset);
@@ -1035,10 +1125,10 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // ld hl, sp + imm8
             0b1111_1000 => {
                 i.op = Operation::LD;
-                i.operand_0 = Some(Operand::Direct(Src::R16(R16::HL)));
-                let sp = Box::new(Src::R16(R16::SP));
-                let imm8 = Box::new(Src::Imm8);
-                i.operand_1 = Some(Operand::Direct(Src::Sum((sp, imm8))));
+                i.dest = Some(R16::HL.to_operand());
+                let sp = Box::new(R16::SP.to_operand());
+                let imm8 = Box::new(Operand::Imm8);
+                i.src = Some(Operand::Sum((sp, imm8)));
                 i.length = 2;
                 i.cycles = 12;
                 i.flags.set(Flag::Zero, FlagBehavior::Reset);
@@ -1051,8 +1141,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // ld sp, hl
             0b1111_1001 => {
                 i.op = Operation::LD;
-                i.operand_0 = Some(Operand::Direct(Src::R16(R16::SP)));
-                i.operand_1 = Some(Operand::Direct(Src::R16(R16::HL)));
+                i.dest = Some(R16::SP.to_operand());
+                i.src = Some(R16::HL.to_operand());
                 i.length = 1;
                 i.cycles = 8;
                 return Ok(i);
@@ -1090,7 +1180,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // jp imm16
             0b1100_0011 => {
                 i.op = Operation::JP;
-                i.operand_0 = Some(Operand::Direct(Src::Imm16));
+                i.dest = Some(Operand::Imm16);
                 i.length = 3;
                 i.cycles = 16;
                 return Ok(i);
@@ -1098,7 +1188,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // jp hl
             0b1110_1001 => {
                 i.op = Operation::JP;
-                i.operand_0 = Some(Operand::Direct(Src::R16(R16::HL)));
+                i.dest = Some(Operand::HL);
                 i.length = 3;
                 i.cycles = 16;
                 return Ok(i);
@@ -1107,7 +1197,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // call imm16
             0b1100_1101 => {
                 i.op = Operation::CALL;
-                i.operand_0 = Some(Operand::Direct(Src::Imm16));
+                i.dest = Some(Operand::Imm16);
                 i.length = 3;
                 i.cycles = 24;
                 return Ok(i);
@@ -1122,7 +1212,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
         0b000 => {
             i.op = Operation::RET;
             let c = Cond::from_u8((opcode & 0b0001_1000) >> 3)?;
-            i.operand_0 = Some(Operand::Direct(Src::Cond(c)));
+            i.dest = Some(c.to_operand());
             i.length = 1;
             i.cycles = 8;
             i.branch_cycles = 20;
@@ -1132,8 +1222,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
         0b010 => {
             i.op = Operation::JP;
             let c = Cond::from_u8((opcode & 0b0001_1000) >> 3)?;
-            i.operand_0 = Some(Operand::Direct(Src::Cond(c)));
-            i.operand_1 = Some(Operand::Direct(Src::Imm16));
+            i.dest = Some(c.to_operand());
+            i.src = Some(Operand::Imm16);
             i.length = 3;
             i.cycles = 12;
             i.branch_cycles = 16;
@@ -1143,8 +1233,8 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
         0b100 => {
             i.op = Operation::CALL;
             let c = Cond::from_u8((opcode & 0b0001_1000) >> 3)?;
-            i.operand_0 = Some(Operand::Direct(Src::Cond(c)));
-            i.operand_1 = Some(Operand::Direct(Src::Imm16));
+            i.dest = Some(c.to_operand());
+            i.src = Some(Operand::Imm16);
             i.length = 3;
             i.cycles = 12;
             i.branch_cycles = 24;
@@ -1154,7 +1244,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
         0b111 => {
             i.op = Operation::RST;
             let t = Tgt3::new((opcode & 0b0011_1000) >> 3);
-            i.operand_0 = Some(Operand::Direct(Src::Tgt3(t)));
+            i.dest = Some(Operand::Tgt3(t));
             i.length = 1;
             i.cycles = 16;
             return Ok(i);
@@ -1168,7 +1258,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
         0b0001 => {
             i.op = Operation::POP;
             let r = R16Stk::from_u8((opcode & 0b0011_0000) >> 4)?;
-            i.operand_0 = Some(Operand::Direct(Src::R16Stk(r)));
+            i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 12;
             return Ok(i);
@@ -1177,7 +1267,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
         0b0101 => {
             i.op = Operation::PUSH;
             let r = R16Stk::from_u8((opcode & 0b0011_0000) >> 4)?;
-            i.operand_0 = Some(Operand::Direct(Src::R16Stk(r)));
+            i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 16;
             return Ok(i);
@@ -1197,7 +1287,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
         0b000 => {
             i.op = Operation::RLC;
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1214,7 +1304,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
         0b001 => {
             i.op = Operation::RRC;
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1231,7 +1321,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
         0b010 => {
             i.op = Operation::RL;
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1248,7 +1338,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
         0b011 => {
             i.op = Operation::RR;
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1265,7 +1355,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
         0b100 => {
             i.op = Operation::SLA;
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1282,7 +1372,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
         0b101 => {
             i.op = Operation::SRA;
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1299,7 +1389,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
         0b110 => {
             i.op = Operation::RL;
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1316,7 +1406,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
         0b111 => {
             i.op = Operation::SRL;
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1339,8 +1429,8 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             i.op = Operation::BIT;
             let b3 = BitIndex::new((opcode & 0b11_1000) >> 3);
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::B3(b3)));
-            i.operand_1 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(b3.to_operand());
+            i.src = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1357,8 +1447,8 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             i.op = Operation::BIT;
             let b3 = BitIndex::new((opcode & 0b11_1000) >> 3);
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::B3(b3)));
-            i.operand_1 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(b3.to_operand());
+            i.src = Some(b3.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1372,8 +1462,8 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             i.op = Operation::BIT;
             let b3 = BitIndex::new((opcode & 0b11_1000) >> 3);
             let r = R8::from_u8(opcode & 0b111)?;
-            i.operand_0 = Some(Operand::Direct(Src::B3(b3)));
-            i.operand_1 = Some(Operand::Direct(Src::R8(r)));
+            i.dest = Some(b3.to_operand());
+            i.src = Some(r.to_operand());
             i.length = 2;
             if r == R8::HlMem {
                 i.cycles = 16;
@@ -1390,15 +1480,15 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
 
 #[cfg(test)]
 mod test {
-    use crate::instructions::{Cond, FlagBehavior, Operand, Operation, R8, R16, Src, decode};
+    use crate::instructions::{Cond, FlagBehavior, Operand, Operation, R8, R16, decode};
 
     // BLOCK 0 TESTS
     #[test]
     fn decode_nop() {
         let i = decode(0).unwrap();
         assert_eq!(i.op, Operation::NOP);
-        assert_eq!(i.operand_0, None);
-        assert_eq!(i.operand_1, None);
+        assert_eq!(i.dest, None);
+        assert_eq!(i.src, None);
         assert_eq!(i.length, 1);
         assert_eq!(i.cycles, 4);
     }
@@ -1406,8 +1496,8 @@ mod test {
     fn decode_stop() {
         let i = decode(0x10).unwrap();
         assert_eq!(i.op, Operation::STOP);
-        assert_eq!(i.operand_0, None);
-        assert_eq!(i.operand_1, None);
+        assert_eq!(i.dest, None);
+        assert_eq!(i.src, None);
         assert_eq!(i.length, 1);
         assert_eq!(i.cycles, 4);
     }
@@ -1417,8 +1507,8 @@ mod test {
         let opcode = 0b0001_0001;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::LD);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::R16(R16::DE))));
-        assert_eq!(i.operand_1, Some(Operand::Direct(Src::Imm16)));
+        assert_eq!(i.dest, Some(R16::DE.to_operand()));
+        assert_eq!(i.src, Some(Operand::Imm16));
         assert_eq!(i.length, 3);
         assert_eq!(i.cycles, 12);
     }
@@ -1428,11 +1518,8 @@ mod test {
         let opcode = 0b0001_0010;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::LD);
-        assert_eq!(
-            i.operand_0,
-            Some(Operand::Mem(Src::R16Mem(crate::instructions::R16Mem::DE)))
-        );
-        assert_eq!(i.operand_1, Some(Operand::Direct(Src::R8(R8::A))));
+        assert_eq!(i.dest, Some(Operand::BC.to_mem()));
+        assert_eq!(i.src, Some(Operand::A));
         assert_eq!(i.length, 1);
         assert_eq!(i.cycles, 8);
     }
@@ -1442,11 +1529,8 @@ mod test {
         let opcode = 0b0001_1010;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::LD);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::R8(R8::A))));
-        assert_eq!(
-            i.operand_1,
-            Some(Operand::Mem(Src::R16Mem(crate::instructions::R16Mem::DE)))
-        );
+        assert_eq!(i.dest, Some(Operand::A));
+        assert_eq!(i.src, Some(Operand::BC.to_mem()));
         assert_eq!(i.length, 1);
         assert_eq!(i.cycles, 8);
     }
@@ -1456,8 +1540,8 @@ mod test {
         let opcode = 0b0000_1000;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::LD);
-        assert_eq!(i.operand_0, Some(Operand::Mem(Src::Imm16)));
-        assert_eq!(i.operand_1, Some(Operand::Direct(Src::R16(R16::SP))));
+        assert_eq!(i.dest, Some(Operand::Imm16.to_mem()));
+        assert_eq!(i.src, Some(Operand::SP));
         assert_eq!(i.length, 3);
         assert_eq!(i.cycles, 20);
     }
@@ -1467,8 +1551,8 @@ mod test {
         let opcode = 0b0001_0011;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::INC);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::R16(R16::DE))));
-        assert_eq!(i.operand_1, None);
+        assert_eq!(i.dest, Some(Operand::DE));
+        assert_eq!(i.src, None);
         assert_eq!(i.length, 1);
         assert_eq!(i.cycles, 8);
     }
@@ -1478,8 +1562,8 @@ mod test {
         let opcode = 0b0001_1011;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::DEC);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::R16(R16::DE))));
-        assert_eq!(i.operand_1, None);
+        assert_eq!(i.dest, Some(Operand::DE));
+        assert_eq!(i.src, None);
         assert_eq!(i.length, 1);
         assert_eq!(i.cycles, 8);
     }
@@ -1489,8 +1573,8 @@ mod test {
         let opcode = 0x09;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::ADD);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::R16(R16::HL))));
-        assert_eq!(i.operand_1, Some(Operand::Direct(Src::R16(R16::BC))));
+        assert_eq!(i.dest, Some(Operand::HL));
+        assert_eq!(i.src, Some(Operand::BC));
         assert_eq!(i.flags.zero, FlagBehavior::Unmodified);
         assert_eq!(i.flags.negative, FlagBehavior::Reset);
         assert_eq!(i.flags.half_carry, FlagBehavior::Dependent);
@@ -1502,8 +1586,8 @@ mod test {
         let opcode = 0x04;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::INC);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::R8(R8::B))));
-        assert_eq!(i.operand_1, None);
+        assert_eq!(i.dest, Some(Operand::B));
+        assert_eq!(i.src, None);
         assert_eq!(i.flags.zero, FlagBehavior::Dependent);
         assert_eq!(i.flags.negative, FlagBehavior::Reset);
         assert_eq!(i.flags.half_carry, FlagBehavior::Dependent);
@@ -1515,8 +1599,8 @@ mod test {
         let opcode = 0x05;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::DEC);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::R8(R8::B))));
-        assert_eq!(i.operand_1, None);
+        assert_eq!(i.dest, Some(Operand::B));
+        assert_eq!(i.src, None);
         assert_eq!(i.flags.zero, FlagBehavior::Dependent);
         assert_eq!(i.flags.negative, FlagBehavior::Set);
         assert_eq!(i.flags.half_carry, FlagBehavior::Dependent);
@@ -1528,8 +1612,8 @@ mod test {
         let opcode = 0x36;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::LD);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::R8(R8::HlMem))));
-        assert_eq!(i.operand_1, Some(Operand::Direct(Src::Imm8)));
+        assert_eq!(i.dest, Some(Operand::HL.to_mem()));
+        assert_eq!(i.src, Some(Operand::Imm8));
     }
 
     #[test]
@@ -1537,7 +1621,7 @@ mod test {
         let opcode = 0x18;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::JR);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::Imm8)));
+        assert_eq!(i.dest, Some(Operand::Imm8));
     }
 
     #[test]
@@ -1545,7 +1629,7 @@ mod test {
         let opcode = 0x28;
         let i = decode(opcode).unwrap();
         assert_eq!(i.op, Operation::JR);
-        assert_eq!(i.operand_0, Some(Operand::Direct(Src::Cond(Cond::Z))));
-        assert_eq!(i.operand_1, Some(Operand::Direct(Src::Imm8)));
+        assert_eq!(i.dest, Some(Operand::Cond(Cond::Z)));
+        assert_eq!(i.src, Some(Operand::Imm8));
     }
 }

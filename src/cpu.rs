@@ -1,9 +1,33 @@
-use crate::registers::{ProgramCounter, Register};
+use std::sync::{Arc, Mutex};
+
+use thiserror::Error;
+
+use crate::{
+    instructions::{self, Instruction, InstructionError},
+    memory::{Memory, MemoryError},
+    registers::{Level, Register},
+};
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("CPU: operand value type mismatch")]
+    OperandValueTypeMismiatch,
+    #[error("CPU: memory error: {0}")]
+    MemoryError(MemoryError),
+    #[error("CPU: missing source operand")]
+    MissingSource,
+    #[error("CPU: missing destination operand")]
+    MissingDestination,
+    #[error("CPU: unknown error")]
+    Unknown,
+}
 
 pub struct CPU {
     rf: RegisterFile,
     sp: Register,
-    pc: ProgramCounter,
+    pc: Register,
+
+    mem: Arc<Mutex<Memory>>,
 }
 
 pub struct RegisterFile {
@@ -13,22 +37,14 @@ pub struct RegisterFile {
     hl: Register,
 }
 
-impl CPU {
-    pub fn new() -> CPU {
-        CPU {
-            rf: RegisterFile::new(),
-            sp: Register::new(),
-            pc: ProgramCounter::new(),
-        }
-    }
-
-    pub fn rf(&self) -> &RegisterFile {
-        &self.rf
-    }
-
-    pub fn rf_mut(&mut self) -> &mut RegisterFile {
-        &mut self.rf
-    }
+pub enum ByteRegister {
+    B,
+    C,
+    D,
+    E,
+    H,
+    L,
+    A,
 }
 
 impl RegisterFile {
@@ -43,6 +59,30 @@ impl RegisterFile {
 
     pub fn flags(&self) -> u8 {
         self.af().low()
+    }
+
+    pub fn byte_register(&self, br: ByteRegister) -> u8 {
+        match br {
+            ByteRegister::B => self.bc.read_byte(Level::High),
+            ByteRegister::D => self.de.read_byte(Level::High),
+            ByteRegister::H => self.hl.read_byte(Level::High),
+            ByteRegister::A => self.af.read_byte(Level::High),
+            ByteRegister::C => self.bc.read_byte(Level::Low),
+            ByteRegister::E => self.de.read_byte(Level::Low),
+            ByteRegister::L => self.hl.read_byte(Level::Low),
+        }
+    }
+
+    pub fn write_byte_register(&mut self, br: ByteRegister, data: u8) {
+        match br {
+            ByteRegister::B => self.bc.write_byte(Level::High, data),
+            ByteRegister::D => self.de.write_byte(Level::High, data),
+            ByteRegister::H => self.hl.write_byte(Level::High, data),
+            ByteRegister::A => self.af.write_byte(Level::High, data),
+            ByteRegister::C => self.bc.write_byte(Level::Low, data),
+            ByteRegister::E => self.de.write_byte(Level::Low, data),
+            ByteRegister::L => self.hl.write_byte(Level::Low, data),
+        }
     }
 
     pub fn af(&self) -> &Register {
@@ -75,5 +115,107 @@ impl RegisterFile {
 
     pub fn hl_mut(&mut self) -> &mut Register {
         &mut self.hl
+    }
+}
+
+impl CPU {
+    pub fn new(mem: Arc<Mutex<Memory>>) -> CPU {
+        CPU {
+            rf: RegisterFile::new(),
+            sp: Register::new(),
+            pc: Register::new(),
+            mem,
+        }
+    }
+
+    pub fn rf(&self) -> &RegisterFile {
+        &self.rf
+    }
+
+    pub fn rf_mut(&mut self) -> &mut RegisterFile {
+        &mut self.rf
+    }
+
+    fn fetch(&mut self) -> Result<u8, MemoryError> {
+        let mem = self.mem.lock().unwrap();
+        let pc_val = self.pc.val();
+        self.pc.inc();
+        mem.read(pc_val)
+    }
+
+    fn fetch_word(&mut self) -> Result<u16, MemoryError> {
+        let low = self.fetch()? as u16;
+        let high = self.fetch()? as u16;
+        Ok((high << 8) | low)
+    }
+
+    fn decode(&self, opcode: u8) -> Result<Instruction, InstructionError> {
+        instructions::decode(opcode)
+    }
+
+    //fn execute(&mut self, i: &Instruction) -> Result<(), Error> {
+    //    Ok(())
+    //}
+
+    fn execute_add(&mut self, i: &Instruction) -> Result<(), Error> {
+        let dest = match i.dest() {
+            Some(d) => d,
+            None => return Err(Error::MissingDestination),
+        };
+        let src = match i.src() {
+            Some(s) => s,
+            None => return Err(Error::MissingSource),
+        };
+
+        Ok(())
+    }
+
+    fn src_imm8(&mut self) -> Result<OperandValue, Error> {
+        match self.fetch() {
+            Ok(b) => Ok(OperandValue::Byte(b)),
+            Err(e) => Err(Error::MemoryError(e)),
+        }
+    }
+
+    fn src_imm16(&mut self) -> Result<OperandValue, Error> {
+        match self.fetch_word() {
+            Ok(w) => Ok(OperandValue::Word(w)),
+            Err(e) => Err(Error::MemoryError(e)),
+        }
+    }
+}
+
+fn operand_type_match(a: OperandValue, b: OperandValue) -> bool {
+    match a {
+        OperandValue::Byte(_) => match b {
+            OperandValue::Byte(_) => true,
+            OperandValue::Word(_) => false,
+        },
+        OperandValue::Word(_) => match b {
+            OperandValue::Byte(_) => false,
+            OperandValue::Word(_) => true,
+        },
+    }
+}
+
+enum OperandValue {
+    Byte(u8),
+    Word(u16),
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn fetch_word() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        mem.lock().unwrap().write(0x00, 0xCC).unwrap();
+        mem.lock().unwrap().write(0x01, 0xDD).unwrap();
+        let expected_word = 0xDDCC;
+        let mut cpu = CPU::new(mem);
+        let fetched = cpu.fetch_word().unwrap();
+        println!("{:x}", fetched);
+        assert_eq!(expected_word, fetched);
     }
 }
