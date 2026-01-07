@@ -1,6 +1,8 @@
-use std::fmt::Display;
+use std::{error::Error, fmt::Display};
 
 use thiserror::Error;
+
+use crate::cpu::CPU;
 
 pub enum Block {
     Block0,
@@ -467,69 +469,7 @@ impl Display for FlagBehavior {
     }
 }
 
-pub enum Flag {
-    Zero,
-    Negative,
-    HalfCarry,
-    Carry,
-}
-
-pub struct FlagSet {
-    zero: FlagBehavior,
-    negative: FlagBehavior,
-    half_carry: FlagBehavior,
-    carry: FlagBehavior,
-}
-
-impl FlagSet {
-    fn new() -> FlagSet {
-        FlagSet {
-            zero: FlagBehavior::Unmodified,
-            negative: FlagBehavior::Unmodified,
-            half_carry: FlagBehavior::Unmodified,
-            carry: FlagBehavior::Unmodified,
-        }
-    }
-
-    pub fn zero(&self) -> FlagBehavior {
-        self.zero
-    }
-    pub fn negative(&self) -> FlagBehavior {
-        self.negative
-    }
-    pub fn half_carry(&self) -> FlagBehavior {
-        self.half_carry
-    }
-    pub fn carry(&self) -> FlagBehavior {
-        self.carry
-    }
-    pub fn flag(&self, f: Flag) -> FlagBehavior {
-        match f {
-            Flag::Zero => self.zero,
-            Flag::Negative => self.negative,
-            Flag::HalfCarry => self.half_carry,
-            Flag::Carry => self.carry,
-        }
-    }
-    pub fn set(&mut self, f: Flag, fb: FlagBehavior) {
-        match f {
-            Flag::Zero => self.zero = fb,
-            Flag::Negative => self.negative = fb,
-            Flag::HalfCarry => self.half_carry = fb,
-            Flag::Carry => self.carry = fb,
-        }
-    }
-}
-
-impl Display for FlagSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "[z:{} n:{} hc:{} c:{}]",
-            self.zero, self.negative, self.half_carry, self.carry
-        )
-    }
-}
+type Executor = fn(&mut Instruction, &mut CPU) -> Result<(), Box<dyn Error>>;
 
 pub struct Instruction {
     op: Operation,
@@ -540,7 +480,7 @@ pub struct Instruction {
     cycles: u8,
     branch_cycles: u8,
 
-    flags: FlagSet,
+    ex: Executor,
 }
 
 impl Instruction {
@@ -552,28 +492,32 @@ impl Instruction {
             length: 1,
             cycles: 4,
             branch_cycles: 0,
-            flags: FlagSet::new(),
+            ex: |_, _| Ok(()),
         }
     }
     pub fn stop() -> Instruction {
         let mut i = Instruction::nop();
         i.op = Operation::STOP;
+        i.ex = |_, cpu| {
+            cpu.fetch()?;
+            cpu.stop();
+            Ok(())
+        };
         i
     }
     pub fn halt() -> Instruction {
         let mut i = Instruction::nop();
         i.op = Operation::HALT;
+        i.ex = |_, cpu| {
+            cpu.halt();
+            Ok(())
+        };
         i
     }
     pub fn new() -> Instruction {
         Instruction::nop()
     }
-    pub fn flags(&self) -> &FlagSet {
-        &self.flags
-    }
-    pub fn flags_mut(&mut self) -> &mut FlagSet {
-        &mut self.flags
-    }
+
     pub fn op(&self) -> Operation {
         self.op
     }
@@ -651,6 +595,11 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.src = Some(Operand::Imm16);
             i.length = 3;
             i.cycles = 12;
+            i.ex = |i, cpu| {
+                let imm16 = cpu.fetch_word()?;
+                cpu.r16(i.dest)?.write(imm16);
+                Ok(())
+            };
             return Ok(i);
         }
         // ld [r16mem], a
@@ -661,6 +610,13 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.src = Some(R8::A.to_operand());
             i.length = 1;
             i.cycles = 8;
+            i.ex = |i, cpu| {
+                let addr = cpu.r16(i.dest)?.val();
+                let a = cpu.rf().byte(i.src)?;
+                let mem = cpu.mem().lock()?;
+                mem.write(addr, a)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // ld a, [r16mem]
@@ -671,6 +627,13 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.src = Some(dest.to_operand().to_mem());
             i.length = 1;
             i.cycles = 8;
+            i.ex = |i, cpu| {
+                let addr = cpu.r16(i.src)?.val();
+                let mem = cpu.mem().lock()?;
+                let val = mem.read(addr)?;
+                cpu.rf_mut().write_byte(i.dest, val)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // ld [imm16], sp
@@ -683,6 +646,13 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
                 i.src = Some(R16::SP.to_operand());
                 i.length = 3;
                 i.cycles = 20;
+                i.ex = |i, cpu| {
+                    let val = cpu.r16(i.src)?.val();
+                    let imm16 = cpu.fetch_word()?;
+                    let mem = cpu.mem().lock()?;
+                    mem.write_word(imm16, val)?;
+                    Ok(())
+                };
                 return Ok(i);
             }
         }
@@ -694,6 +664,12 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 8;
+
+            i.ex = |i, cpu| {
+                cpu.r16(i.dest)?.inc();
+                Ok(())
+            };
+
             return Ok(i);
         }
         // dec r16
@@ -703,6 +679,10 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 8;
+            i.ex = |i, cpu| {
+                cpu.r16(i.dest)?.dec();
+                Ok(())
+            };
             return Ok(i);
         }
         // add hl, r16
@@ -713,9 +693,12 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.src = Some(r.to_operand());
             i.length = 1;
             i.cycles = 8;
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
+            i.ex = |i,cpu| {
+                let r16 = cpu.r16(i.src)?.val();
+                let hl = cpu.rf_mut().hl_mut();
+                let result = r16 + hl.val();
+                Ok(())
+            };
             return Ok(i);
         }
         _ => (),
@@ -1480,7 +1463,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
 
 #[cfg(test)]
 mod test {
-    use crate::instructions::{Cond, FlagBehavior, Operand, Operation, R8, R16, decode};
+    use crate::instructions::{Cond, FlagBehavior, Operand, Operation, R16, decode};
 
     // BLOCK 0 TESTS
     #[test]

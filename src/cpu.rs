@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 use crate::{
-    instructions::{self, Instruction, InstructionError},
+    instructions::{self, Instruction, InstructionError, Operand},
     memory::{Memory, MemoryError},
     registers::{Level, Register},
 };
@@ -28,6 +28,9 @@ pub struct CPU {
     pc: Register,
 
     mem: Arc<Mutex<Memory>>,
+
+    stopped: bool,
+    halted: bool,
 }
 
 pub struct RegisterFile {
@@ -61,28 +64,41 @@ impl RegisterFile {
         self.af().low()
     }
 
-    pub fn byte_register(&self, br: ByteRegister) -> u8 {
-        match br {
-            ByteRegister::B => self.bc.read_byte(Level::High),
-            ByteRegister::D => self.de.read_byte(Level::High),
-            ByteRegister::H => self.hl.read_byte(Level::High),
-            ByteRegister::A => self.af.read_byte(Level::High),
-            ByteRegister::C => self.bc.read_byte(Level::Low),
-            ByteRegister::E => self.de.read_byte(Level::Low),
-            ByteRegister::L => self.hl.read_byte(Level::Low),
+    pub fn byte(&self, r: Option<Operand>) -> Result<u8, &'static str> {
+        match r {
+            Some(o) => match o {
+                Operand::B => Ok(self.bc.read_byte(Level::High)),
+                Operand::D => Ok(self.de.read_byte(Level::High)),
+                Operand::H => Ok(self.hl.read_byte(Level::High)),
+                Operand::A => Ok(self.af.read_byte(Level::High)),
+                Operand::C => Ok(self.bc.read_byte(Level::Low)),
+                Operand::E => Ok(self.de.read_byte(Level::Low)),
+                Operand::L => Ok(self.hl.read_byte(Level::Low)),
+                _ => Err("invalid R8"),
+            },
+            None => Err("missing Operand"),
         }
     }
 
-    pub fn write_byte_register(&mut self, br: ByteRegister, data: u8) {
-        match br {
-            ByteRegister::B => self.bc.write_byte(Level::High, data),
-            ByteRegister::D => self.de.write_byte(Level::High, data),
-            ByteRegister::H => self.hl.write_byte(Level::High, data),
-            ByteRegister::A => self.af.write_byte(Level::High, data),
-            ByteRegister::C => self.bc.write_byte(Level::Low, data),
-            ByteRegister::E => self.de.write_byte(Level::Low, data),
-            ByteRegister::L => self.hl.write_byte(Level::Low, data),
+    pub fn write_byte(&mut self, r: Option<Operand>, data: u8) -> Result<(), &'static str> {
+        match r {
+            Some(o) => match o {
+                Operand::B => self.bc.write_byte(Level::High, data),
+                Operand::D => self.de.write_byte(Level::High, data),
+                Operand::H => self.hl.write_byte(Level::High, data),
+                Operand::A => self.af.write_byte(Level::High, data),
+                Operand::C => self.bc.write_byte(Level::Low, data),
+                Operand::E => self.de.write_byte(Level::Low, data),
+                Operand::L => self.hl.write_byte(Level::Low, data),
+                _ => {
+                    return Err("invalid R8");
+                }
+            },
+            None => {
+                return Err("missing Operand");
+            }
         }
+        Ok(())
     }
 
     pub fn af(&self) -> &Register {
@@ -125,6 +141,8 @@ impl CPU {
             sp: Register::new(),
             pc: Register::new(),
             mem,
+            stopped: false,
+            halted: false,
         }
     }
 
@@ -136,17 +154,44 @@ impl CPU {
         &mut self.rf
     }
 
-    fn fetch(&mut self) -> Result<u8, MemoryError> {
+    pub fn mem(&mut self) -> Arc<Mutex<Memory>> {
+        self.mem.clone()
+    }
+
+    pub fn r16(&mut self, r: Option<Operand>) -> Result<&mut Register, &'static str> {
+        match r {
+            Some(o) => match o {
+                Operand::BC => Ok(&mut self.rf.bc),
+                Operand::DE => Ok(&mut self.rf.de),
+                Operand::HL => Ok(&mut self.rf.hl),
+                Operand::AF => Ok(&mut self.rf.af),
+                Operand::SP => Ok(&mut self.sp),
+                Operand::Mem(x) => Ok(self.r16(Some(*x))?),
+                _ => Err("invalid R16"),
+            },
+            None => Err("missing Operand"),
+        }
+    }
+
+    pub fn fetch(&mut self) -> Result<u8, MemoryError> {
         let mem = self.mem.lock().unwrap();
         let pc_val = self.pc.val();
         self.pc.inc();
         mem.read(pc_val)
     }
 
-    fn fetch_word(&mut self) -> Result<u16, MemoryError> {
+    pub fn fetch_word(&mut self) -> Result<u16, MemoryError> {
         let low = self.fetch()? as u16;
         let high = self.fetch()? as u16;
         Ok((high << 8) | low)
+    }
+
+    pub fn stop(&mut self) {
+        self.stopped = true
+    }
+
+    pub fn halt(&mut self) {
+        self.halted = true
     }
 
     fn decode(&self, opcode: u8) -> Result<Instruction, InstructionError> {
@@ -166,7 +211,6 @@ impl CPU {
             Some(s) => s,
             None => return Err(Error::MissingSource),
         };
-
         Ok(())
     }
 
