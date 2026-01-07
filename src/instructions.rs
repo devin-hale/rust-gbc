@@ -2,7 +2,10 @@ use std::{error::Error, fmt::Display};
 
 use thiserror::Error;
 
-use crate::cpu::CPU;
+use crate::{
+    bit,
+    cpu::{CPU, Flag},
+};
 
 pub enum Block {
     Block0,
@@ -597,7 +600,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.cycles = 12;
             i.ex = |i, cpu| {
                 let imm16 = cpu.fetch_word()?;
-                cpu.r16(i.dest)?.write(imm16);
+                cpu.r16(i.dest())?.write(imm16);
                 Ok(())
             };
             return Ok(i);
@@ -611,9 +614,10 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.length = 1;
             i.cycles = 8;
             i.ex = |i, cpu| {
-                let addr = cpu.r16(i.dest)?.val();
-                let a = cpu.rf().byte(i.src)?;
-                let mem = cpu.mem().lock()?;
+                let addr = cpu.r16(i.dest())?.val();
+                let a = cpu.rf().byte(i.src())?;
+                let mu = cpu.mem();
+                let mut mem = mu.lock().unwrap();
                 mem.write(addr, a)?;
                 Ok(())
             };
@@ -628,10 +632,11 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.length = 1;
             i.cycles = 8;
             i.ex = |i, cpu| {
-                let addr = cpu.r16(i.src)?.val();
-                let mem = cpu.mem().lock()?;
-                let val = mem.read(addr)?;
-                cpu.rf_mut().write_byte(i.dest, val)?;
+                let addr = cpu.r16(i.src())?.val();
+                let mu = cpu.mem();
+                let mem = mu.lock().unwrap();
+                let val = mem.read(addr)?.clone();
+                cpu.rf_mut().write_byte(i.dest(), val)?;
                 Ok(())
             };
             return Ok(i);
@@ -647,9 +652,10 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
                 i.length = 3;
                 i.cycles = 20;
                 i.ex = |i, cpu| {
-                    let val = cpu.r16(i.src)?.val();
+                    let val = cpu.r16(i.src())?.val();
                     let imm16 = cpu.fetch_word()?;
-                    let mem = cpu.mem().lock()?;
+                    let mu = cpu.mem();
+                    let mut mem = mu.lock().unwrap();
                     mem.write_word(imm16, val)?;
                     Ok(())
                 };
@@ -666,7 +672,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.cycles = 8;
 
             i.ex = |i, cpu| {
-                cpu.r16(i.dest)?.inc();
+                cpu.r16(i.dest())?.inc();
                 Ok(())
             };
 
@@ -680,7 +686,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.length = 1;
             i.cycles = 8;
             i.ex = |i, cpu| {
-                cpu.r16(i.dest)?.dec();
+                cpu.r16(i.dest())?.dec();
                 Ok(())
             };
             return Ok(i);
@@ -693,11 +699,18 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.src = Some(r.to_operand());
             i.length = 1;
             i.cycles = 8;
-            i.ex = |i,cpu| {
-                let r16 = cpu.r16(i.src)?.val();
-                let hl = cpu.rf_mut().hl_mut();
-                let hl_val = hl.val();
-                let result = r16 + hl.val();
+            i.ex = |i, cpu| {
+                let r16 = cpu.r16(i.src())?.val();
+                let rf = cpu.rf_mut();
+                let hl_val = rf.hl_mut().val();
+                rf.flag_reset(Flag::N);
+                if bit::add_overflow_u16(r16, hl_val, 11) {
+                    rf.flag_set(Flag::HC);
+                }
+                if bit::add_overflow_u16(r16, hl_val, 15) {
+                    rf.flag_set(Flag::C);
+                }
+                rf.hl_mut().write(r16 + hl_val);
                 Ok(())
             };
             return Ok(i);
@@ -714,9 +727,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 4;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
             return Ok(i);
         }
 
@@ -727,9 +737,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 4;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Set);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
             return Ok(i);
         }
 
@@ -862,74 +869,42 @@ fn decode_block_2(opcode: u8) -> Result<Instruction, InstructionError> {
         // add a, r8
         0b1_0000 => {
             i.op = Operation::ADD;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // adc a, r8
         0b1_0001 => {
             i.op = Operation::ADC;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // sub a, r8
         0b1_0010 => {
             i.op = Operation::SUB;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Set);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // sbc a, r8
         0b1_0011 => {
             i.op = Operation::SBC;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Set);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // and a, r8
         0b1_0100 => {
             i.op = Operation::AND;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Set);
-            i.flags.set(Flag::Carry, FlagBehavior::Reset);
             return Ok(i);
         }
         // xor a, r8
         0b1_0101 => {
             i.op = Operation::XOR;
             i.op = Operation::AND;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Reset);
             return Ok(i);
         }
         // or a, r8
         0b1_0110 => {
             i.op = Operation::OR;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Reset);
             return Ok(i);
         }
         // cp a, r8
         0b1_0111 => {
             i.op = Operation::CP;
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Set);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         _ => (),
@@ -967,66 +942,34 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // add a, imm8
             0 => {
                 i.op = Operation::ADD;
-                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-                i.flags.set(Flag::Negative, FlagBehavior::Reset);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             }
             // adc a, imm8
             0b1 => {
                 i.op = Operation::ADC;
-                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-                i.flags.set(Flag::Negative, FlagBehavior::Reset);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             }
             // sub a, imm8
             0b10 => {
                 i.op = Operation::SUB;
-                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-                i.flags.set(Flag::Negative, FlagBehavior::Set);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             }
             // sbc a, imm8
             0b11 => {
                 i.op = Operation::SBC;
-                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-                i.flags.set(Flag::Negative, FlagBehavior::Set);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             }
             // and a, imm8
             0b100 => {
                 i.op = Operation::AND;
-                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-                i.flags.set(Flag::Negative, FlagBehavior::Reset);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Set);
-                i.flags.set(Flag::Carry, FlagBehavior::Reset);
             }
             // xor a, imm8
             0b101 => {
                 i.op = Operation::XOR;
-                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-                i.flags.set(Flag::Negative, FlagBehavior::Reset);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-                i.flags.set(Flag::Carry, FlagBehavior::Reset);
             }
             // or a, imm8
             0b110 => {
                 i.op = Operation::OR;
-                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-                i.flags.set(Flag::Negative, FlagBehavior::Reset);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-                i.flags.set(Flag::Carry, FlagBehavior::Reset);
             }
             // cp a, imm8
             0b111 => {
                 i.op = Operation::CP;
-                i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-                i.flags.set(Flag::Negative, FlagBehavior::Set);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             }
             _ => (),
         }
@@ -1099,10 +1042,6 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
                 i.src = Some(Operand::Imm8);
                 i.length = 2;
                 i.cycles = 16;
-                i.flags.set(Flag::Zero, FlagBehavior::Reset);
-                i.flags.set(Flag::Negative, FlagBehavior::Reset);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
                 return Ok(i);
             }
 
@@ -1115,10 +1054,6 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
                 i.src = Some(Operand::Sum((sp, imm8)));
                 i.length = 2;
                 i.cycles = 12;
-                i.flags.set(Flag::Zero, FlagBehavior::Reset);
-                i.flags.set(Flag::Negative, FlagBehavior::Reset);
-                i.flags.set(Flag::HalfCarry, FlagBehavior::Dependent);
-                i.flags.set(Flag::Carry, FlagBehavior::Dependent);
                 return Ok(i);
             }
 
@@ -1278,10 +1213,6 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // rrc r8
@@ -1295,10 +1226,6 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // rl r8
@@ -1312,10 +1239,6 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // rr r8
@@ -1329,10 +1252,6 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // sla r8
@@ -1346,10 +1265,6 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // sra r8
@@ -1363,10 +1278,6 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         // swap r8
@@ -1380,10 +1291,6 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Reset);
             return Ok(i);
         }
         // srl r8
@@ -1397,10 +1304,6 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Reset);
-            i.flags.set(Flag::Carry, FlagBehavior::Dependent);
             return Ok(i);
         }
         _ => (),
@@ -1421,9 +1324,6 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
-            i.flags.set(Flag::Zero, FlagBehavior::Dependent);
-            i.flags.set(Flag::Negative, FlagBehavior::Reset);
-            i.flags.set(Flag::HalfCarry, FlagBehavior::Set);
             return Ok(i);
         }
         // res b3, r8
@@ -1464,7 +1364,7 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
 
 #[cfg(test)]
 mod test {
-    use crate::instructions::{Cond, FlagBehavior, Operand, Operation, R16, decode};
+    use crate::instructions::{Cond, Operand, Operation, R16, decode};
 
     // BLOCK 0 TESTS
     #[test]
@@ -1559,10 +1459,6 @@ mod test {
         assert_eq!(i.op, Operation::ADD);
         assert_eq!(i.dest, Some(Operand::HL));
         assert_eq!(i.src, Some(Operand::BC));
-        assert_eq!(i.flags.zero, FlagBehavior::Unmodified);
-        assert_eq!(i.flags.negative, FlagBehavior::Reset);
-        assert_eq!(i.flags.half_carry, FlagBehavior::Dependent);
-        assert_eq!(i.flags.carry, FlagBehavior::Dependent);
     }
 
     #[test]
@@ -1572,10 +1468,6 @@ mod test {
         assert_eq!(i.op, Operation::INC);
         assert_eq!(i.dest, Some(Operand::B));
         assert_eq!(i.src, None);
-        assert_eq!(i.flags.zero, FlagBehavior::Dependent);
-        assert_eq!(i.flags.negative, FlagBehavior::Reset);
-        assert_eq!(i.flags.half_carry, FlagBehavior::Dependent);
-        assert_eq!(i.flags.carry, FlagBehavior::Unmodified);
     }
 
     #[test]
@@ -1585,10 +1477,6 @@ mod test {
         assert_eq!(i.op, Operation::DEC);
         assert_eq!(i.dest, Some(Operand::B));
         assert_eq!(i.src, None);
-        assert_eq!(i.flags.zero, FlagBehavior::Dependent);
-        assert_eq!(i.flags.negative, FlagBehavior::Set);
-        assert_eq!(i.flags.half_carry, FlagBehavior::Dependent);
-        assert_eq!(i.flags.carry, FlagBehavior::Unmodified);
     }
 
     #[test]

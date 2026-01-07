@@ -1,17 +1,28 @@
-fn get(byte: u8, n: u8) -> u8 {
+pub fn get(byte: u8, n: u8) -> u8 {
     (byte >> n) & 1
 }
 
-fn set(byte: &mut u8, n: u8) {
+pub fn get_u16(word: u16, n: u8) -> u16 {
+    (word >> n) & 1
+}
+
+pub fn set(byte: &mut u8, n: u8) {
     *byte = *byte | (1 << n)
 }
 
-fn reset(byte: &mut u8, n: u8) {
+pub fn reset(byte: &mut u8, n: u8) {
     *byte = *byte & !(1 << n)
 }
 
-fn toggle(byte: &mut u8, n: u8) {
+pub fn toggle(byte: &mut u8, n: u8) {
     *byte = *byte ^ (1 << n)
+}
+
+pub fn add_overflow_u16(a: u16, b: u16, n: u8) -> bool {
+    let bit = 1 << n;
+    let a = a & bit;
+    let b = b & bit;
+    get_u16(a + b, n + 1) == 1
 }
 
 #[cfg(test)]
@@ -52,5 +63,13 @@ mod tests {
         assert_eq!(bit::get(byte, 1), 1);
         bit::toggle(&mut byte, 1);
         assert_eq!(bit::get(byte, 1), 0);
+    }
+
+    #[test]
+    fn add_overflow_u16() {
+        let a = 0b0001_0000 as u16;
+        let b = 0b0001_0000 as u16;
+        assert!(bit::add_overflow_u16(a, b, 4));
+        assert!(!bit::add_overflow_u16(a, 0, 4));
     }
 }

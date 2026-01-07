@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 use crate::{
+    bit,
     instructions::{self, Instruction, InstructionError, Operand},
     memory::{Memory, MemoryError},
     registers::{Level, Register},
@@ -50,6 +51,13 @@ pub enum ByteRegister {
     A,
 }
 
+pub enum Flag {
+    C = 4,
+    HC,
+    N,
+    Z,
+}
+
 impl RegisterFile {
     pub fn new() -> RegisterFile {
         RegisterFile {
@@ -78,6 +86,23 @@ impl RegisterFile {
             },
             None => Err("missing Operand"),
         }
+    }
+
+    pub fn flag_set(&mut self, f: Flag) {
+        let mut flags = self.af.low();
+        bit::set(&mut flags, f as u8);
+        self.af.write_byte(Level::Low, flags);
+    }
+
+    pub fn flag_reset(&mut self, f: Flag) {
+        let mut flags = self.af.low();
+        bit::reset(&mut flags, f as u8);
+        self.af.write_byte(Level::Low, flags);
+    }
+
+    pub fn flag_is_set(&self, f: Flag) -> bool {
+        let flags = self.af.low();
+        bit::get(flags, f as u8) == 1
     }
 
     pub fn write_byte(&mut self, r: Option<Operand>, data: u8) -> Result<(), &'static str> {
@@ -202,17 +227,17 @@ impl CPU {
     //    Ok(())
     //}
 
-    fn execute_add(&mut self, i: &Instruction) -> Result<(), Error> {
-        let dest = match i.dest() {
-            Some(d) => d,
-            None => return Err(Error::MissingDestination),
-        };
-        let src = match i.src() {
-            Some(s) => s,
-            None => return Err(Error::MissingSource),
-        };
-        Ok(())
-    }
+    //fn execute_add(&mut self, i: &Instruction) -> Result<(), Error> {
+    //    let dest = match i.dest() {
+    //        Some(d) => d,
+    //        None => return Err(Error::MissingDestination),
+    //    };
+    //    let src = match i.src() {
+    //        Some(s) => s,
+    //        None => return Err(Error::MissingSource),
+    //    };
+    //    Ok(())
+    //}
 
     fn src_imm8(&mut self) -> Result<OperandValue, Error> {
         match self.fetch() {
