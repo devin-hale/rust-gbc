@@ -696,6 +696,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.ex = |i,cpu| {
                 let r16 = cpu.r16(i.src)?.val();
                 let hl = cpu.rf_mut().hl_mut();
+                let hl_val = hl.val();
                 let result = r16 + hl.val();
                 Ok(())
             };
