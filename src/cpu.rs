@@ -73,7 +73,7 @@ impl CPU {
         self.af().low()
     }
 
-    pub fn byte(&self, r: Option<Operand>) -> Result<u8, &'static str> {
+    pub fn read_byte(&self, r: Option<Operand>) -> Result<u8, &'static str> {
         match r {
             Some(o) => match o {
                 Operand::B => Ok(self.bc.read_byte(Level::High)),
@@ -144,13 +144,13 @@ impl CPU {
     }
 
     pub fn inc_byte(&mut self, r: Option<Operand>) -> Result<u8, &'static str> {
-        let data = self.byte(r.clone())? + 1;
+        let data = self.read_byte(r.clone())? + 1;
         self.write_byte(r.clone(), data)?;
         Ok(data)
     }
 
     pub fn dec_byte(&mut self, r: Option<Operand>) -> Result<u8, &'static str> {
-        let data = self.byte(r.clone())? - 1;
+        let data = self.read_byte(r.clone())? - 1;
         self.write_byte(r.clone(), data)?;
         Ok(data)
     }
@@ -191,7 +191,46 @@ impl CPU {
         self.mem.clone()
     }
 
-    pub fn r16(&mut self, r: Option<Operand>) -> Result<&mut Register, &'static str> {
+    pub fn write(&mut self, r: Option<Operand>, data: u16) -> Result<(), &'static str> {
+        match r {
+            Some(o) => match o {
+                Operand::BC => self.bc.write(data),
+                Operand::DE => self.de.write(data),
+                Operand::HL => self.hl.write(data),
+                Operand::AF => self.hl.write(data),
+                Operand::SP => self.hl.write(data),
+                Operand::Mem(x) => {
+                    let addr = self.read(Some(*x))?;
+                    let mut mem = self.mem.lock().unwrap();
+                    mem.write_word(addr, data).unwrap();
+                }
+                _ => return Err("invalid R16"),
+            },
+            None => return Err("missing Operand"),
+        }
+        Ok(())
+    }
+
+    pub fn read(&mut self, r: Option<Operand>) -> Result<u16, &'static str> {
+        match r {
+            Some(o) => match o {
+                Operand::BC => Ok(self.bc.val()),
+                Operand::DE => Ok(self.de.val()),
+                Operand::HL => Ok(self.hl.val()),
+                Operand::AF => Ok(self.af.val()),
+                Operand::SP => Ok(self.sp.val()),
+                Operand::Mem(x) => {
+                    let addr = self.read(Some(*x))?;
+                    let mem = self.mem.lock().unwrap();
+                    Ok(mem.read_word(addr).unwrap())
+                }
+                _ => Err("invalid R16"),
+            },
+            None => Err("missing Operand"),
+        }
+    }
+
+    pub fn register(&mut self, r: Option<Operand>) -> Result<&mut Register, &'static str> {
         match r {
             Some(o) => match o {
                 Operand::BC => Ok(&mut self.bc),
@@ -199,7 +238,6 @@ impl CPU {
                 Operand::HL => Ok(&mut self.hl),
                 Operand::AF => Ok(&mut self.af),
                 Operand::SP => Ok(&mut self.sp),
-                Operand::Mem(x) => Ok(self.r16(Some(*x))?),
                 _ => Err("invalid R16"),
             },
             None => Err("missing Operand"),
@@ -285,6 +323,18 @@ mod test {
     use super::*;
 
     #[test]
+    fn fetch() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        mem.lock().unwrap().write(0x00, 0xCC).unwrap();
+        let expected = 0xCC;
+
+        let mut cpu = CPU::new(mem);
+        let fetched = cpu.fetch().unwrap();
+        assert_eq!(expected, fetched);
+        assert_eq!(cpu.pc.val(), 0x1);
+    }
+
+    #[test]
     fn fetch_word() {
         let mem = Arc::new(Mutex::new(Memory::new()));
         mem.lock().unwrap().write(0x00, 0xCC).unwrap();
@@ -292,7 +342,74 @@ mod test {
         let expected_word = 0xDDCC;
         let mut cpu = CPU::new(mem);
         let fetched = cpu.fetch_word().unwrap();
-        println!("{:x}", fetched);
         assert_eq!(expected_word, fetched);
+        assert_eq!(cpu.pc.val(), 0x2);
+    }
+
+    #[test]
+    fn flags() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+        let byte = 0b0110_0110;
+        cpu.af.write_byte(Level::Low, byte);
+        assert_eq!(cpu.flags(), byte);
+    }
+
+    #[test]
+    fn flag_set() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+        assert_ne!(bit::get(cpu.af.low(), Flag::N as u8), 1);
+        cpu.flag_set(Flag::N);
+        assert_eq!(bit::get(cpu.af.low(), Flag::N as u8), 1);
+    }
+
+    #[test]
+    fn flag_reset() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+        cpu.flag_set(Flag::N);
+        assert_eq!(bit::get(cpu.af.low(), Flag::N as u8), 1);
+        cpu.flag_reset(Flag::N);
+        assert_eq!(bit::get(cpu.af.low(), Flag::N as u8), 0);
+    }
+
+    #[test]
+    fn flag_is_set() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let cpu = CPU::new(mem);
+        assert!(!bit::is_set(cpu.flags(), Flag::N as u8));
+    }
+
+    #[test]
+    fn hlmem_byte() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+
+        let addr = 0xFFEE;
+        let data = 0x99;
+        let op = Operand::Mem(Box::new(Operand::HL));
+
+        cpu.mem.lock().unwrap().write(addr, data).unwrap();
+        cpu.write(Some(Operand::HL), addr).unwrap();
+
+        let from_cpu = cpu.read_byte(Some(op)).unwrap();
+        assert_eq!(from_cpu, data);
+    }
+
+    #[test]
+    fn hlmem_word() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+
+        let addr = 0xFFEE;
+        let data = 0x9900;
+        let op = Operand::Mem(Box::new(Operand::HL));
+
+        cpu.mem.lock().unwrap().write_word(addr, data).unwrap();
+        cpu.write(Some(Operand::HL), addr).unwrap();
+
+        let from_cpu = cpu.read(Some(op)).unwrap();
+        assert_eq!(from_cpu, data);
     }
 }

@@ -580,7 +580,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.cycles = 12;
             i.ex = |i, cpu| {
                 let imm16 = cpu.fetch_word()?;
-                cpu.r16(i.dest())?.write(imm16);
+                cpu.register(i.dest())?.write(imm16);
                 Ok(())
             };
             return Ok(i);
@@ -594,8 +594,8 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.length = 1;
             i.cycles = 8;
             i.ex = |i, cpu| {
-                let addr = cpu.r16(i.dest())?.val();
-                let a = cpu.byte(i.src())?;
+                let addr = cpu.register(i.dest())?.val();
+                let a = cpu.read_byte(i.src())?;
                 let mu = cpu.mem();
                 let mut mem = mu.lock().unwrap();
                 mem.write(addr, a)?;
@@ -612,7 +612,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.length = 1;
             i.cycles = 8;
             i.ex = |i, cpu| {
-                let addr = cpu.r16(i.src())?.val();
+                let addr = cpu.register(i.src())?.val();
                 let mu = cpu.mem();
                 let mem = mu.lock().unwrap();
                 let val = mem.read(addr)?.clone();
@@ -632,7 +632,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
                 i.length = 3;
                 i.cycles = 20;
                 i.ex = |i, cpu| {
-                    let val = cpu.r16(i.src())?.val();
+                    let val = cpu.register(i.src())?.val();
                     let imm16 = cpu.fetch_word()?;
                     let mu = cpu.mem();
                     let mut mem = mu.lock().unwrap();
@@ -652,7 +652,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.cycles = 8;
 
             i.ex = |i, cpu| {
-                cpu.r16(i.dest())?.inc();
+                cpu.register(i.dest())?.inc();
                 Ok(())
             };
 
@@ -666,7 +666,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.length = 1;
             i.cycles = 8;
             i.ex = |i, cpu| {
-                cpu.r16(i.dest())?.dec();
+                cpu.register(i.dest())?.dec();
                 Ok(())
             };
             return Ok(i);
@@ -680,7 +680,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.length = 1;
             i.cycles = 8;
             i.ex = |i, cpu| {
-                let r16 = cpu.r16(i.src())?.val();
+                let r16 = cpu.register(i.src())?.val();
                 let hl_val = cpu.hl_mut().val();
                 cpu.flag_reset(Flag::N);
                 if bit::add_overflow_u16(r16, hl_val, 11) {
@@ -707,7 +707,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.length = 1;
             i.cycles = 4;
             i.ex = |i, cpu| {
-                let prev = cpu.byte(i.dest())?;
+                let prev = cpu.read_byte(i.dest())?;
                 let result = cpu.inc_byte(i.dest())?;
                 cpu.flag_reset(Flag::N);
                 if result == 0 {
@@ -730,7 +730,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.cycles = 4;
             i.ex = |i, cpu| {
                 let dest = i.dest();
-                let prev = cpu.byte(i.dest())?;
+                let prev = cpu.read_byte(i.dest())?;
 
                 let result = cpu.inc_byte(i.dest())?;
 

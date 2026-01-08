@@ -19,6 +19,12 @@ impl Memory {
         Ok(self.m[addr as usize])
     }
 
+    pub fn read_word(&self, addr: u16) -> Result<u16, MemoryError> {
+        let low = self.m[addr as usize];
+        let high = self.m[(addr + 1) as usize];
+        Ok(((high as u16) << 8) | low as u16)
+    }
+
     pub fn write(&mut self, addr: u16, data: u8) -> Result<(), MemoryError> {
         self.m[addr as usize] = data;
         Ok(())
@@ -46,5 +52,13 @@ mod test {
         mem.write_word(0, word).unwrap();
         assert_eq!(mem.read(0x00).unwrap(), low);
         assert_eq!(mem.read(0x01).unwrap(), high);
+    }
+
+    #[test]
+    fn read_word() {
+        let mut mem = Memory::new();
+        let word = 0xFFEE;
+        mem.write_word(0, word).unwrap();
+        assert_eq!(mem.read_word(0x00).unwrap(), word);
     }
 }
