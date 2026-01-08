@@ -72,7 +72,7 @@ impl Display for Operand {
             Operand::Imm8 => String::from("imm8"),
             Operand::Imm16 => String::from("imm16"),
             Operand::Sum((a, b)) => format!("{} + {}", *a, *b),
-            Operand::Mem(b) => format!("{}", b),
+            Operand::Mem(b) => format!("[{}]", *b),
         };
         write!(f, "{}", src)
     }
@@ -466,6 +466,19 @@ pub struct Instruction {
     ex: Executor,
 }
 
+impl Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut instr = format!("{}", self.op);
+        if let Some(o) = self.dest() {
+            instr = format!("{} {}", instr, o);
+        }
+        if let Some(o) = self.src() {
+            instr = format!("{}, {}", instr, o);
+        }
+        write!(f, "{}", instr)
+    }
+}
+
 impl Instruction {
     pub fn nop() -> Instruction {
         Instruction {
@@ -734,11 +747,11 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
 
                 let result = cpu.inc_byte(i.dest())?;
 
-                cpu.flag_reset(Flag::N);
+                cpu.flag_set(Flag::N);
                 if result == 0 {
-                    cpu.flag_reset(Flag::Z);
+                    cpu.flag_set(Flag::Z);
                 }
-                if bit::add_overflow(prev, 1, 3) {
+                if bit::sub_borrow(prev, 1, 4) {
                     cpu.flag_set(Flag::HC);
                 }
                 Ok(())
@@ -757,6 +770,12 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
                 R8::HlMem => i.cycles = 12,
                 _ => i.cycles = 4,
             }
+            i.ex = |i, cpu| {
+                let imm8 = cpu.fetch()?;
+                let r8 = i.src();
+                cpu.write_byte(r8, imm8)?;
+                Ok(())
+            };
             return Ok(i);
         }
 
@@ -769,6 +788,11 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
                     i.dest = Some(Operand::Imm8);
                     i.length = 2;
                     i.cycles = 12;
+                    i.ex = |i, cpu| {
+                        let imm8 = cpu.fetch()?;
+                        cpu.jump_relative(imm8)?;
+                        Ok(())
+                    };
                     return Ok(i);
                 }
                 // jr cond, imm8
@@ -780,6 +804,13 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
                     i.length = 2;
                     i.cycles = 8;
                     i.branch_cycles = 12;
+                    i.ex = |i, cpu| {
+                        if cpu.cc(i.src())? {
+                            let imm8 = cpu.fetch()?;
+                            cpu.jump_relative(imm8)?;
+                        }
+                        Ok(())
+                    };
                     return Ok(i);
                 }
             }
@@ -791,41 +822,146 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
         // rlca
         0b0000_0111 => {
             i.op = Operation::RLCA;
+            i.length = 1;
+            i.cycles = 4;
+            i.ex = |i, cpu| {
+                cpu.clear_flags();
+                let a = cpu.read_byte(Some(Operand::A))?;
+                let a7 = bit::get(a, 7);
+                cpu.flag_set_val(Flag::C, a7);
+                let a = (a << 1) + a7;
+                cpu.write_byte(Some(Operand::A), a)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // rrca
         0b0000_1111 => {
             i.op = Operation::RRCA;
+            i.length = 1;
+            i.cycles = 4;
+            i.ex = |i, cpu| {
+                cpu.clear_flags();
+                let a = cpu.read_byte(Some(Operand::A))?;
+                let a0 = bit::get(a, 0);
+                cpu.flag_set_val(Flag::C, a0);
+                let a = (a >> 1) + (a0 << 7);
+                cpu.write_byte(Some(Operand::A), a)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // rla
         0b0001_0111 => {
             i.op = Operation::RLA;
+            i.length = 1;
+            i.cycles = 4;
+            i.ex = |i, cpu| {
+                cpu.clear_flags();
+                let a = cpu.read_byte(Some(Operand::A))?;
+                let cf = cpu.flag(Flag::C);
+                let a7 = bit::get(a, 7);
+                cpu.flag_set_val(Flag::C, a7);
+                let a = (a << 1) + cf;
+                cpu.write_byte(Some(Operand::A), a)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // rra
         0b0001_1111 => {
             i.op = Operation::RRA;
+            i.length = 1;
+            i.cycles = 4;
+            i.ex = |i, cpu| {
+                cpu.clear_flags();
+                let a = cpu.read_byte(Some(Operand::A))?;
+                let cf = cpu.flag(Flag::C);
+                let a0 = bit::get(a, 0);
+                cpu.flag_set_val(Flag::C, a0);
+                let a = (a >> 1) + (cf << 7);
+                cpu.write_byte(Some(Operand::A), a)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // daa
         0b0010_0111 => {
             i.op = Operation::DAA;
+            i.length = 1;
+            i.cycles = 4;
+            i.ex = |i, cpu| {
+                let a = cpu.read_byte(Some(Operand::A))?;
+                if cpu.flag_is_set(Flag::N) {
+                    let mut adj = 0;
+                    if cpu.flag_is_set(Flag::HC) {
+                        adj += 0x6;
+                    }
+                    if cpu.flag_is_set(Flag::C) {
+                        adj += 0x60;
+                    }
+                    let result = a - adj;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.write_byte(Some(Operand::A), result)?;
+                } else {
+                    let mut adj = 0;
+                    if cpu.flag_is_set(Flag::HC) || (a & 0xF) > 0x9 {
+                        adj += 0x6;
+                    }
+                    if cpu.flag_is_set(Flag::C) || a > 0x99 {
+                        adj += 0x60;
+                        cpu.flag_set(Flag::C);
+                    }
+                    let result = a + adj;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.write_byte(Some(Operand::A), result)?;
+                }
+                Ok(())
+            };
             return Ok(i);
         }
         // cpl
         0b0010_1111 => {
             i.op = Operation::CPL;
+            i.length = 1;
+            i.cycles = 4;
+            i.ex = |i, cpu| {
+                let a = cpu.read_byte(Some(Operand::A))?;
+                cpu.write_byte(Some(Operand::A), !a)?;
+                cpu.flag_set(Flag::N);
+                cpu.flag_set(Flag::HC);
+                Ok(())
+            };
             return Ok(i);
         }
         // scf
         0b0011_0111 => {
             i.op = Operation::SCF;
+            i.length = 1;
+            i.cycles = 4;
+            i.ex = |i, cpu| {
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.flag_set(Flag::C);
+                Ok(())
+            };
             return Ok(i);
         }
         // ccf
         0b0011_1111 => {
             i.op = Operation::CCF;
+            i.length = 1;
+            i.cycles = 4;
+            i.ex = |i, cpu| {
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.flag_invert(Flag::C);
+                Ok(())
+            };
             return Ok(i);
         }
         _ => (),

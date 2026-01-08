@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use crate::instructions::Instruction;
+
 mod bit;
 mod cpu;
 mod instructions;
@@ -7,5 +9,6 @@ mod memory;
 mod registers;
 
 fn main() {
-    println!("{}", instructions::R8::HlMem);
+    let i = Instruction::nop();
+    println!("{}", i);
 }

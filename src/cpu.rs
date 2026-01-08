@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::{
     bit,
-    instructions::{self, Instruction, InstructionError, Operand},
+    instructions::{self, Cond, Instruction, InstructionError, Operand},
     memory::{Memory, MemoryError},
     registers::{Level, Register},
 };
@@ -35,6 +35,7 @@ pub struct CPU {
 
     stopped: bool,
     halted: bool,
+    interrupts_enabled: bool,
 }
 
 pub enum ByteRegister {
@@ -47,6 +48,7 @@ pub enum ByteRegister {
     A,
 }
 
+#[derive(Clone, Copy)]
 pub enum Flag {
     C = 4,
     HC,
@@ -66,6 +68,7 @@ impl CPU {
             mem,
             stopped: false,
             halted: false,
+            interrupts_enabled: false,
         }
     }
 
@@ -103,6 +106,23 @@ impl CPU {
         self.af.write_byte(Level::Low, flags);
     }
 
+    pub fn flag_set_val(&mut self, f: Flag, v: u8) {
+        let v = v & 1;
+        if v == 1 {
+            self.flag_set(f);
+        } else {
+            self.flag_reset(f);
+        }
+    }
+
+    pub fn flag_invert(&mut self, f: Flag) {
+        if self.flag_is_set(f) {
+            self.flag_reset(f);
+        } else {
+            self.flag_set(f);
+        }
+    }
+
     pub fn flag_reset(&mut self, f: Flag) {
         let mut flags = self.af.low();
         bit::reset(&mut flags, f as u8);
@@ -110,8 +130,19 @@ impl CPU {
     }
 
     pub fn flag_is_set(&self, f: Flag) -> bool {
+        self.flag(f) == 1
+    }
+
+    pub fn flag(&self, f: Flag) -> u8 {
         let flags = self.af.low();
-        bit::get(flags, f as u8) == 1
+        bit::get(flags, f as u8)
+    }
+
+    pub fn clear_flags(&mut self) {
+        self.flag_reset(Flag::Z);
+        self.flag_reset(Flag::C);
+        self.flag_reset(Flag::HC);
+        self.flag_reset(Flag::N);
     }
 
     pub fn write_byte(&mut self, r: Option<Operand>, data: u8) -> Result<(), &'static str> {
@@ -257,6 +288,33 @@ impl CPU {
         Ok((high << 8) | low)
     }
 
+    pub fn jump_relative(&mut self, b: u8) -> Result<u16, &'static str> {
+        let addr = self.pc.val() + (b as u16);
+        self.pc.write(addr);
+        Ok(addr)
+    }
+
+    pub fn jump_relative_word(&mut self, b: u16) -> Result<u16, &'static str> {
+        let addr = self.pc.val() + b;
+        self.pc.write(addr);
+        Ok(addr)
+    }
+
+    pub fn cc(&self, c: Option<Operand>) -> Result<bool, &'static str> {
+        match c {
+            Some(o) => match o {
+                Operand::Cond(c) => match c {
+                    Cond::Z => Ok(self.flag_is_set(Flag::Z)),
+                    Cond::NZ => Ok(!self.flag_is_set(Flag::Z)),
+                    Cond::C => Ok(self.flag_is_set(Flag::C)),
+                    Cond::NC => Ok(!self.flag_is_set(Flag::C)),
+                },
+                _ => Err("incorrect operand type"),
+            },
+            None => Err("missing operand"),
+        }
+    }
+
     pub fn stop(&mut self) {
         self.stopped = true
     }
@@ -268,54 +326,6 @@ impl CPU {
     fn decode(&self, opcode: u8) -> Result<Instruction, InstructionError> {
         instructions::decode(opcode)
     }
-
-    //fn execute(&mut self, i: &Instruction) -> Result<(), Error> {
-    //    Ok(())
-    //}
-
-    //fn execute_add(&mut self, i: &Instruction) -> Result<(), Error> {
-    //    let dest = match i.dest() {
-    //        Some(d) => d,
-    //        None => return Err(Error::MissingDestination),
-    //    };
-    //    let src = match i.src() {
-    //        Some(s) => s,
-    //        None => return Err(Error::MissingSource),
-    //    };
-    //    Ok(())
-    //}
-
-    fn src_imm8(&mut self) -> Result<OperandValue, Error> {
-        match self.fetch() {
-            Ok(b) => Ok(OperandValue::Byte(b)),
-            Err(e) => Err(Error::MemoryError(e)),
-        }
-    }
-
-    fn src_imm16(&mut self) -> Result<OperandValue, Error> {
-        match self.fetch_word() {
-            Ok(w) => Ok(OperandValue::Word(w)),
-            Err(e) => Err(Error::MemoryError(e)),
-        }
-    }
-}
-
-fn operand_type_match(a: OperandValue, b: OperandValue) -> bool {
-    match a {
-        OperandValue::Byte(_) => match b {
-            OperandValue::Byte(_) => true,
-            OperandValue::Word(_) => false,
-        },
-        OperandValue::Word(_) => match b {
-            OperandValue::Byte(_) => false,
-            OperandValue::Word(_) => true,
-        },
-    }
-}
-
-enum OperandValue {
-    Byte(u8),
-    Word(u16),
 }
 
 #[cfg(test)]
@@ -344,6 +354,26 @@ mod test {
         let fetched = cpu.fetch_word().unwrap();
         assert_eq!(expected_word, fetched);
         assert_eq!(cpu.pc.val(), 0x2);
+    }
+
+    #[test]
+    fn jump_relative() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+        let byte = 0xFF;
+        let expected = cpu.pc.val() + (byte as u16);
+        cpu.jump_relative(byte).unwrap();
+        assert_eq!(cpu.pc.val(), expected);
+    }
+
+    #[test]
+    fn jump_relative_word() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+        let word = 0xFF00;
+        let expected = cpu.pc.val() + word;
+        cpu.jump_relative_word(word).unwrap();
+        assert_eq!(cpu.pc.val(), expected);
     }
 
     #[test]
@@ -382,6 +412,17 @@ mod test {
     }
 
     #[test]
+    fn flag_set_val() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+        let f = Flag::C;
+        cpu.flag_set_val(f, 1);
+        assert!(cpu.flag_is_set(f));
+        cpu.flag_set_val(f, 0);
+        assert!(!cpu.flag_is_set(f));
+    }
+
+    #[test]
     fn hlmem_byte() {
         let mem = Arc::new(Mutex::new(Memory::new()));
         let mut cpu = CPU::new(mem);
@@ -411,5 +452,37 @@ mod test {
 
         let from_cpu = cpu.read(Some(op)).unwrap();
         assert_eq!(from_cpu, data);
+    }
+
+    #[test]
+    fn inc_byte() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+        let expect = cpu.bc.high() + 1;
+        cpu.inc_byte(Some(Operand::B)).unwrap();
+
+        assert_eq!(cpu.bc.high(), expect);
+    }
+
+    #[test]
+    fn dec_byte() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+        cpu.bc.write_byte(Level::High, 0xFF);
+        let expect = cpu.bc.high() - 1;
+        cpu.dec_byte(Some(Operand::B)).unwrap();
+        assert_eq!(cpu.bc.high(), expect);
+    }
+
+    #[test]
+    fn cc() {
+        let mem = Arc::new(Mutex::new(Memory::new()));
+        let mut cpu = CPU::new(mem);
+        assert!(cpu.cc(Some(Operand::Cond(Cond::NZ))).unwrap());
+        assert!(cpu.cc(Some(Operand::Cond(Cond::NC))).unwrap());
+        cpu.flag_set(Flag::Z);
+        cpu.flag_set(Flag::C);
+        assert!(cpu.cc(Some(Operand::Cond(Cond::Z))).unwrap());
+        assert!(cpu.cc(Some(Operand::Cond(Cond::C))).unwrap());
     }
 }
