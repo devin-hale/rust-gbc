@@ -1045,10 +1045,10 @@ fn decode_block_2(opcode: u8) -> Result<Instruction, InstructionError> {
                     cpu.flag_set(Flag::Z);
                 }
                 cpu.flag_reset(Flag::N);
-                if bit::add_overflow(a, val, 3) {
+                if bit::add_overflow(a, val + cf, 3) {
                     cpu.flag_set(Flag::HC);
                 }
-                if bit::add_overflow(a, val, 7) {
+                if bit::add_overflow(a, val + cf, 7) {
                     cpu.flag_set(Flag::C);
                 }
                 Ok(())
@@ -1185,7 +1185,6 @@ const INVALID_OPCODES: [u8; 11] = [
     0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
 ];
 
-#[allow(unused_variables)]
 fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
     if INVALID_OPCODES.contains(&opcode) {
         return Err(InstructionError::InvalidOpCode(opcode));
@@ -1202,7 +1201,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
 
     if (opcode & 0b111) == 0b110 {
         i.dest = Some(R8::A.to_operand());
-        i.dest = Some(Operand::Imm8);
+        i.src = Some(Operand::Imm8);
         i.length = 2;
         i.cycles = 8;
 
@@ -1210,34 +1209,167 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
             // add a, imm8
             0 => {
                 i.op = Operation::ADD;
+                i.ex = |i, cpu| {
+                    let a = cpu.read_byte(i.dest())?;
+                    let val = cpu.fetch()?;
+                    let result = a + val;
+                    cpu.write_byte(i.dest(), result)?;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.flag_reset(Flag::N);
+                    if bit::add_overflow(a, val, 3) {
+                        cpu.flag_set(Flag::HC);
+                    }
+                    if bit::add_overflow(a, val, 7) {
+                        cpu.flag_set(Flag::C);
+                    }
+                    Ok(())
+                };
+                return Ok(i);
             }
             // adc a, imm8
             0b1 => {
                 i.op = Operation::ADC;
+                i.ex = |i, cpu| {
+                    let a = cpu.read_byte(i.dest())?;
+                    let cf = cpu.flag(Flag::C);
+                    let val = cpu.fetch()?;
+                    let result = a + val + cf;
+                    cpu.write_byte(i.dest(), result)?;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.flag_reset(Flag::N);
+                    if bit::add_overflow(a, val + cf, 3) {
+                        cpu.flag_set(Flag::HC);
+                    }
+                    if bit::add_overflow(a, val + cf, 7) {
+                        cpu.flag_set(Flag::C);
+                    }
+                    Ok(())
+                };
+                return Ok(i);
             }
             // sub a, imm8
             0b10 => {
                 i.op = Operation::SUB;
+                i.ex = |i, cpu| {
+                    let a = cpu.read_byte(i.dest())?;
+                    let val = cpu.fetch()?;
+                    let result = a - val;
+                    cpu.write_byte(i.dest(), result)?;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.flag_set(Flag::N);
+                    if bit::sub_borrow(a, val, 4) {
+                        cpu.flag_set(Flag::HC);
+                    }
+                    if bit::sub_borrow(a, val, 8) {
+                        cpu.flag_set(Flag::C);
+                    }
+                    Ok(())
+                };
+                return Ok(i);
             }
             // sbc a, imm8
             0b11 => {
                 i.op = Operation::SBC;
+                i.ex = |i, cpu| {
+                    let a = cpu.read_byte(i.dest())?;
+                    let cf = cpu.flag(Flag::C);
+                    let val = cpu.fetch()?;
+                    let result = a - (val + cf);
+                    cpu.write_byte(i.dest(), result)?;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.flag_set(Flag::N);
+                    if bit::sub_borrow(a, val, 4) {
+                        cpu.flag_set(Flag::HC);
+                    }
+                    if bit::sub_borrow(a, val + cf, 8) {
+                        cpu.flag_set(Flag::C);
+                    }
+                    Ok(())
+                };
+                return Ok(i);
             }
             // and a, imm8
             0b100 => {
                 i.op = Operation::AND;
+                i.ex = |i, cpu| {
+                    let a = cpu.read_byte(i.dest())?;
+                    let val = cpu.fetch()?;
+                    let result = a & val;
+                    cpu.write_byte(i.dest(), result)?;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.flag_reset(Flag::N);
+                    cpu.flag_set(Flag::HC);
+                    cpu.flag_reset(Flag::C);
+                    Ok(())
+                };
+                return Ok(i);
             }
             // xor a, imm8
             0b101 => {
                 i.op = Operation::XOR;
+                i.ex = |i, cpu| {
+                    let a = cpu.read_byte(i.dest())?;
+                    let val = cpu.fetch()?;
+                    let result = a ^ val;
+                    cpu.write_byte(i.dest(), result)?;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.flag_reset(Flag::N);
+                    cpu.flag_reset(Flag::HC);
+                    cpu.flag_reset(Flag::C);
+                    Ok(())
+                };
+                return Ok(i);
             }
             // or a, imm8
             0b110 => {
                 i.op = Operation::OR;
+                i.ex = |i, cpu| {
+                    let a = cpu.read_byte(i.dest())?;
+                    let val = cpu.fetch()?;
+                    let result = a | val;
+                    cpu.write_byte(i.dest(), result)?;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.flag_reset(Flag::N);
+                    cpu.flag_reset(Flag::HC);
+                    cpu.flag_reset(Flag::C);
+                    Ok(())
+                };
+                return Ok(i);
             }
             // cp a, imm8
             0b111 => {
                 i.op = Operation::CP;
+                i.ex = |i, cpu| {
+                    let a = cpu.read_byte(i.dest())?;
+                    let val = cpu.fetch()?;
+                    let result = a - val;
+                    if result == 0 {
+                        cpu.flag_set(Flag::Z);
+                    }
+                    cpu.flag_set(Flag::N);
+                    if bit::sub_borrow(a, val, 4) {
+                        cpu.flag_set(Flag::HC);
+                    }
+                    if bit::sub_borrow(a, val, 8) {
+                        cpu.flag_set(Flag::C);
+                    }
+                    Ok(())
+                };
+                return Ok(i);
             }
             _ => (),
         }
