@@ -24,7 +24,10 @@ pub enum Error {
 }
 
 pub struct CPU {
-    rf: RegisterFile,
+    af: Register,
+    bc: Register,
+    de: Register,
+    hl: Register,
     sp: Register,
     pc: Register,
 
@@ -32,13 +35,6 @@ pub struct CPU {
 
     stopped: bool,
     halted: bool,
-}
-
-pub struct RegisterFile {
-    af: Register,
-    bc: Register,
-    de: Register,
-    hl: Register,
 }
 
 pub enum ByteRegister {
@@ -58,13 +54,18 @@ pub enum Flag {
     Z,
 }
 
-impl RegisterFile {
-    pub fn new() -> RegisterFile {
-        RegisterFile {
+impl CPU {
+    pub fn new(mem: Arc<Mutex<Memory>>) -> CPU {
+        CPU {
             af: Register::new(),
             bc: Register::new(),
             de: Register::new(),
             hl: Register::new(),
+            sp: Register::new(),
+            pc: Register::new(),
+            mem,
+            stopped: false,
+            halted: false,
         }
     }
 
@@ -82,6 +83,14 @@ impl RegisterFile {
                 Operand::C => Ok(self.bc.read_byte(Level::Low)),
                 Operand::E => Ok(self.de.read_byte(Level::Low)),
                 Operand::L => Ok(self.hl.read_byte(Level::Low)),
+                Operand::Mem(o) => match *o {
+                    Operand::HL => {
+                        let addr = self.hl.val();
+                        let mem = self.mem.lock().unwrap();
+                        Ok(mem.read(addr).unwrap())
+                    }
+                    _ => return Err("invalid R8"),
+                },
                 _ => Err("invalid R8"),
             },
             None => Err("missing Operand"),
@@ -115,6 +124,14 @@ impl RegisterFile {
                 Operand::C => self.bc.write_byte(Level::Low, data),
                 Operand::E => self.de.write_byte(Level::Low, data),
                 Operand::L => self.hl.write_byte(Level::Low, data),
+                Operand::Mem(o) => match *o {
+                    Operand::HL => {
+                        let addr = self.hl.val();
+                        let mut mem = self.mem.lock().unwrap();
+                        mem.write(addr, data).unwrap();
+                    }
+                    _ => return Err("invalid R8"),
+                },
                 _ => {
                     return Err("invalid R8");
                 }
@@ -124,6 +141,18 @@ impl RegisterFile {
             }
         }
         Ok(())
+    }
+
+    pub fn inc_byte(&mut self, r: Option<Operand>) -> Result<u8, &'static str> {
+        let data = self.byte(r.clone())? + 1;
+        self.write_byte(r.clone(), data)?;
+        Ok(data)
+    }
+
+    pub fn dec_byte(&mut self, r: Option<Operand>) -> Result<u8, &'static str> {
+        let data = self.byte(r.clone())? - 1;
+        self.write_byte(r.clone(), data)?;
+        Ok(data)
     }
 
     pub fn af(&self) -> &Register {
@@ -157,27 +186,6 @@ impl RegisterFile {
     pub fn hl_mut(&mut self) -> &mut Register {
         &mut self.hl
     }
-}
-
-impl CPU {
-    pub fn new(mem: Arc<Mutex<Memory>>) -> CPU {
-        CPU {
-            rf: RegisterFile::new(),
-            sp: Register::new(),
-            pc: Register::new(),
-            mem,
-            stopped: false,
-            halted: false,
-        }
-    }
-
-    pub fn rf(&self) -> &RegisterFile {
-        &self.rf
-    }
-
-    pub fn rf_mut(&mut self) -> &mut RegisterFile {
-        &mut self.rf
-    }
 
     pub fn mem(&mut self) -> Arc<Mutex<Memory>> {
         self.mem.clone()
@@ -186,10 +194,10 @@ impl CPU {
     pub fn r16(&mut self, r: Option<Operand>) -> Result<&mut Register, &'static str> {
         match r {
             Some(o) => match o {
-                Operand::BC => Ok(&mut self.rf.bc),
-                Operand::DE => Ok(&mut self.rf.de),
-                Operand::HL => Ok(&mut self.rf.hl),
-                Operand::AF => Ok(&mut self.rf.af),
+                Operand::BC => Ok(&mut self.bc),
+                Operand::DE => Ok(&mut self.de),
+                Operand::HL => Ok(&mut self.hl),
+                Operand::AF => Ok(&mut self.af),
                 Operand::SP => Ok(&mut self.sp),
                 Operand::Mem(x) => Ok(self.r16(Some(*x))?),
                 _ => Err("invalid R16"),

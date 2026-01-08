@@ -452,26 +452,6 @@ impl Display for Operation {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum FlagBehavior {
-    Unmodified,
-    Set,
-    Reset,
-    Dependent,
-}
-
-impl Display for FlagBehavior {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let b = match self {
-            FlagBehavior::Unmodified => "-",
-            FlagBehavior::Set => "1",
-            FlagBehavior::Reset => "0",
-            FlagBehavior::Dependent => "D",
-        };
-        write!(f, "{}", b)
-    }
-}
-
 type Executor = fn(&mut Instruction, &mut CPU) -> Result<(), Box<dyn Error>>;
 
 pub struct Instruction {
@@ -615,7 +595,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.cycles = 8;
             i.ex = |i, cpu| {
                 let addr = cpu.r16(i.dest())?.val();
-                let a = cpu.rf().byte(i.src())?;
+                let a = cpu.byte(i.src())?;
                 let mu = cpu.mem();
                 let mut mem = mu.lock().unwrap();
                 mem.write(addr, a)?;
@@ -636,7 +616,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
                 let mu = cpu.mem();
                 let mem = mu.lock().unwrap();
                 let val = mem.read(addr)?.clone();
-                cpu.rf_mut().write_byte(i.dest(), val)?;
+                cpu.write_byte(i.dest(), val)?;
                 Ok(())
             };
             return Ok(i);
@@ -701,16 +681,15 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.cycles = 8;
             i.ex = |i, cpu| {
                 let r16 = cpu.r16(i.src())?.val();
-                let rf = cpu.rf_mut();
-                let hl_val = rf.hl_mut().val();
-                rf.flag_reset(Flag::N);
+                let hl_val = cpu.hl_mut().val();
+                cpu.flag_reset(Flag::N);
                 if bit::add_overflow_u16(r16, hl_val, 11) {
-                    rf.flag_set(Flag::HC);
+                    cpu.flag_set(Flag::HC);
                 }
                 if bit::add_overflow_u16(r16, hl_val, 15) {
-                    rf.flag_set(Flag::C);
+                    cpu.flag_set(Flag::C);
                 }
-                rf.hl_mut().write(r16 + hl_val);
+                cpu.hl_mut().write(r16 + hl_val);
                 Ok(())
             };
             return Ok(i);
@@ -727,6 +706,18 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 4;
+            i.ex = |i, cpu| {
+                let prev = cpu.byte(i.dest())?;
+                let result = cpu.inc_byte(i.dest())?;
+                cpu.flag_reset(Flag::N);
+                if result == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                if bit::add_overflow(prev, 1, 3) {
+                    cpu.flag_set(Flag::HC);
+                }
+                Ok(())
+            };
             return Ok(i);
         }
 
@@ -737,6 +728,21 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, InstructionError> {
             i.dest = Some(r.to_operand());
             i.length = 1;
             i.cycles = 4;
+            i.ex = |i, cpu| {
+                let dest = i.dest();
+                let prev = cpu.byte(i.dest())?;
+
+                let result = cpu.inc_byte(i.dest())?;
+
+                cpu.flag_reset(Flag::N);
+                if result == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                if bit::add_overflow(prev, 1, 3) {
+                    cpu.flag_set(Flag::HC);
+                }
+                Ok(())
+            };
             return Ok(i);
         }
 
