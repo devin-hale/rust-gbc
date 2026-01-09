@@ -372,10 +372,215 @@ impl CPU {
     fn decode(&self, opcode: u8) -> Result<Instruction, InstructionError> {
         instructions::decode(opcode)
     }
+
+    fn set_test_state(&mut self, ts: TestState) {
+        self.af.write_byte(Level::High, ts.a);
+        self.af.write_byte(Level::Low, ts.f);
+        self.bc.write_byte(Level::High, ts.b);
+        self.bc.write_byte(Level::Low, ts.c);
+        self.hl.write_byte(Level::High, ts.h);
+        self.hl.write_byte(Level::Low, ts.l);
+        self.pc.write(ts.pc);
+        self.sp.write(ts.sp);
+        for rs in ts.ram {
+            self.mem.lock().unwrap().write(rs.addr, rs.val).unwrap();
+        }
+    }
+
+    fn cmp_test_state(&mut self, ts: TestState) -> bool {
+        for rs in ts.ram {
+            let val = self.mem.lock().unwrap().read(rs.addr).unwrap();
+            if val != rs.val {
+                return false;
+            }
+        }
+        self.af.high() == ts.a
+            && self.af.low() == ts.f
+            && self.bc.high() == ts.b
+            && self.bc.low() == ts.c
+            && self.hl.high() == ts.h
+            && self.hl.low() == ts.l
+            && self.pc.val() == ts.pc
+            && self.sp.val() == ts.sp
+    }
+}
+
+type JSON = serde_json::Value;
+
+struct CPUTest {
+    name: String,
+    initial_state: TestState,
+    final_state: TestState,
+    cycles: Vec<Cycle>,
+}
+impl CPUTest {
+    fn from_json(j: JSON) -> Result<CPUTest, &'static str> {
+        match j {
+            JSON::Object(o) => Ok(CPUTest {
+                name: match o["name"].clone() {
+                    JSON::String(s) => s,
+                    _ => return Err("invalid JSON"),
+                },
+                initial_state: TestState::from_json(o["initial"].clone())?,
+                final_state: TestState::from_json(o["initial"].clone())?,
+                cycles: to_test_cycle_arr(o["cycles"].clone())?,
+            }),
+            _ => Err("invalid JSON"),
+        }
+    }
+}
+
+struct TestState {
+    a: u8,
+    b: u8,
+    c: u8,
+    d: u8,
+    e: u8,
+    f: u8,
+    h: u8,
+    l: u8,
+    pc: u16,
+    sp: u16,
+    ram: Vec<TestRamState>,
+}
+
+impl TestState {
+    pub fn from_json(v: JSON) -> Result<TestState, &'static str> {
+        match v {
+            JSON::Object(o) => Ok(TestState {
+                a: json_to_u8(o["a"].clone())?,
+                b: json_to_u8(o["b"].clone())?,
+                c: json_to_u8(o["c"].clone())?,
+                d: json_to_u8(o["d"].clone())?,
+                e: json_to_u8(o["e"].clone())?,
+                f: json_to_u8(o["f"].clone())?,
+                h: json_to_u8(o["h"].clone())?,
+                l: json_to_u8(o["l"].clone())?,
+                pc: json_to_u16(o["pc"].clone())?,
+                sp: json_to_u16(o["sp"].clone())?,
+                ram: to_test_ram_state_arr(o["ram"].clone())?,
+            }),
+            _ => Err("json cannot be converted to TestState"),
+        }
+    }
+}
+
+fn to_test_ram_state_arr(v: JSON) -> Result<Vec<TestRamState>, &'static str> {
+    match v {
+        JSON::Array(a) => {
+            let mut rs = vec![];
+            for j in a {
+                rs.push(to_test_ram_state(j)?);
+            }
+            Ok(rs)
+        }
+        _ => Err("invalid JSON number"),
+    }
+}
+
+fn to_test_cycle_arr(v: JSON) -> Result<Vec<Cycle>, &'static str> {
+    match v {
+        JSON::Array(a) => {
+            let mut tc = vec![];
+            for j in a {
+                tc.push(to_test_cycle(j)?);
+            }
+            Ok(tc)
+        }
+        _ => Err("invalid JSON number"),
+    }
+}
+
+fn to_test_ram_state(v: JSON) -> Result<TestRamState, &'static str> {
+    match v {
+        JSON::Array(a) => {
+            if a.len() != 2 {
+                return Err("invalid JSON ram state");
+            }
+            Ok(TestRamState {
+                addr: json_to_u16(a[0].clone())?,
+                val: json_to_u8(a[0].clone())?,
+            })
+        }
+        _ => Err("invalid JSON ram state"),
+    }
+}
+
+fn to_test_cycle(v: JSON) -> Result<Cycle, &'static str> {
+    match v {
+        JSON::Array(a) => {
+            if a.len() != 3 {
+                return Err("invalid JSON ram state");
+            }
+            Ok(Cycle::Some(TestCycle {
+                addr: json_to_u16(a[0].clone())?,
+                val: json_to_u8(a[1].clone())?,
+                cycle_type: json_to_cycle_type(a[2].clone())?,
+            }))
+        }
+        JSON::Null => Ok(Cycle::Null),
+        _ => Err("invalid JSON ram state"),
+    }
+}
+
+fn json_to_cycle_type(v: JSON) -> Result<TestCycleType, &'static str> {
+    match v {
+        JSON::String(s) => match s.as_str() {
+            "read" => Ok(TestCycleType::Read),
+            "write" => Ok(TestCycleType::Write),
+            _ => Err("invalid JSON cycle type"),
+        },
+        _ => Err("invalid cycle type"),
+    }
+}
+
+fn json_to_u8(v: JSON) -> Result<u8, &'static str> {
+    match v {
+        JSON::Number(n) => match n.as_u64() {
+            Some(u) => Ok(u as u8),
+            _ => Err("invalid JSON number"),
+        },
+        _ => Err("invalid JSON number"),
+    }
+}
+
+fn json_to_u16(v: JSON) -> Result<u16, &'static str> {
+    match v {
+        JSON::Number(n) => match n.as_u64() {
+            Some(u) => Ok(u as u16),
+            _ => Err("invalid JSON number"),
+        },
+        _ => Err("invalid JSON number"),
+    }
+}
+
+struct TestRamState {
+    addr: u16,
+    val: u8,
+}
+
+enum TestCycleType {
+    Read,
+    Write,
+}
+
+enum Cycle {
+    Some(TestCycle),
+    Null,
+}
+
+struct TestCycle {
+    addr: u16,
+    val: u8,
+    cycle_type: TestCycleType,
 }
 
 #[cfg(test)]
 mod test {
+    use std::{fs, io};
+
+    use serde_json::Value;
+
     use super::*;
 
     #[test]
@@ -530,5 +735,33 @@ mod test {
         cpu.flag_set(Flag::C);
         assert!(cpu.cc(Some(Operand::Cond(Cond::Z))).unwrap());
         assert!(cpu.cc(Some(Operand::Cond(Cond::C))).unwrap());
+    }
+
+    #[test]
+    fn test_cpu() {
+        let mut entries = fs::read_dir("./test_files")
+            .unwrap()
+            .map(|res| res.map(|e| e.path()))
+            .collect::<Result<Vec<_>, io::Error>>()
+            .unwrap();
+        entries.sort();
+        for e in entries {
+            let file = fs::read_to_string(e.to_str().unwrap()).unwrap();
+            let json: Value = serde_json::from_str(&file).unwrap();
+            match json {
+                JSON::Array(a) => {
+                    for test_json in a {
+                        let test = CPUTest::from_json(test_json).unwrap();
+                        let mem = Arc::new(Mutex::new(Memory::new()));
+                        let mut cpu = CPU::new(mem);
+                        cpu.set_test_state(test.initial_state);
+                        println!("test good");
+                        panic!("");
+                    }
+                }
+                _ => panic!("not arr"),
+            }
+            panic!("");
+        }
     }
 }
