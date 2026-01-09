@@ -76,7 +76,7 @@ impl CPU {
         self.af().low()
     }
 
-    pub fn read_byte(&self, r: Option<Operand>) -> Result<u8, &'static str> {
+    pub fn read_byte(&mut self, r: Option<Operand>) -> Result<u8, &'static str> {
         match r {
             Some(o) => match o {
                 Operand::B => Ok(self.bc.read_byte(Level::High)),
@@ -91,6 +91,16 @@ impl CPU {
                         let addr = self.hl.val();
                         let mem = self.mem.lock().unwrap();
                         Ok(mem.read(addr).unwrap())
+                    }
+                    Operand::HLI => {
+                        let addr = self.hl.val();
+                        self.hl.inc();
+                        Ok(self.read_mem(addr).unwrap())
+                    }
+                    Operand::HLD => {
+                        let addr = self.hl.val();
+                        self.hl.dec();
+                        Ok(self.read_mem(addr).unwrap())
                     }
                     _ => return Err("invalid R8"),
                 },
@@ -242,6 +252,16 @@ impl CPU {
         Ok(())
     }
 
+    pub fn read_mem(&mut self, addr: u16) -> Result<u8, MemoryError> {
+        let mem = self.mem.lock().unwrap();
+        Ok(mem.read(addr)?)
+    }
+
+    pub fn read_mem_word(&mut self, addr: u16) -> Result<u16, MemoryError> {
+        let mem = self.mem.lock().unwrap();
+        Ok(mem.read_word(addr)?)
+    }
+
     pub fn read(&mut self, r: Option<Operand>) -> Result<u16, &'static str> {
         match r {
             Some(o) => match o {
@@ -252,8 +272,7 @@ impl CPU {
                 Operand::SP => Ok(self.sp.val()),
                 Operand::Mem(x) => {
                     let addr = self.read(Some(*x))?;
-                    let mem = self.mem.lock().unwrap();
-                    Ok(mem.read_word(addr).unwrap())
+                    Ok(self.read_mem_word(addr).unwrap())
                 }
                 _ => Err("invalid R16"),
             },

@@ -1801,6 +1801,19 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let r = cpu.read_byte(i.dest())?;
+                let r7 = bit::get(r, 7);
+                cpu.flag_set_val(Flag::C, r7);
+                let r = (r << 1) + r7;
+                if r == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.write_byte(i.dest(), r)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // rrc r8
@@ -1814,6 +1827,19 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let r = cpu.read_byte(i.dest())?;
+                let r0 = bit::get(r, 0);
+                cpu.flag_set_val(Flag::C, r0);
+                let r = (r >> 1) + (r0 << 7);
+                if r == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.write_byte(i.dest(), r)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // rl r8
@@ -1827,6 +1853,20 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let r = cpu.read_byte(i.dest())?;
+                let cf = cpu.flag(Flag::C);
+                let r7 = bit::get(r, 7);
+                cpu.flag_set_val(Flag::C, r7);
+                let r = (r << 1) + cf;
+                if r == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.write_byte(i.dest(), r)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // rr r8
@@ -1840,6 +1880,20 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let r = cpu.read_byte(i.dest())?;
+                let cf = cpu.flag(Flag::C);
+                let r0 = bit::get(r, 0);
+                cpu.flag_set_val(Flag::C, r0);
+                let r = (r >> 1) + (cf << 7);
+                if r == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.write_byte(i.dest(), r)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // sla r8
@@ -1853,6 +1907,19 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let r = cpu.read_byte(i.dest())?;
+                let r7 = bit::get(r, 7);
+                cpu.flag_set_val(Flag::C, r7);
+                let r = r << 1;
+                if r == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.write_byte(i.dest(), r)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // sra r8
@@ -1866,6 +1933,20 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let r = cpu.read_byte(i.dest())?;
+                let r0 = bit::get(r, 0);
+                let r7 = bit::get(r, 7) << 7;
+                cpu.flag_set_val(Flag::C, r0);
+                let r = r >> 1 | r7;
+                if r == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.write_byte(i.dest(), r)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // swap r8
@@ -1879,6 +1960,20 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let r = cpu.read_byte(i.dest())?;
+                let l = (r & 0b1111) << 4;
+                let h = (r & 0b1111_0000) >> 4;
+                let r = l | h;
+                cpu.write_byte(i.dest(), r)?;
+                if r == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.flag_reset(Flag::C);
+                Ok(())
+            };
             return Ok(i);
         }
         // srl r8
@@ -1892,6 +1987,19 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let r = cpu.read_byte(i.dest())?;
+                let r0 = bit::get(r, 0);
+                cpu.flag_set_val(Flag::C, r0);
+                let r = r >> 1;
+                if r == 0 {
+                    cpu.flag_reset(Flag::Z);
+                }
+                cpu.flag_reset(Flag::N);
+                cpu.flag_reset(Flag::HC);
+                cpu.write_byte(i.dest(), r)?;
+                Ok(())
+            };
             return Ok(i);
         }
         _ => (),
