@@ -300,6 +300,25 @@ impl CPU {
         Ok(addr)
     }
 
+    pub fn set_pc(&mut self, v: u16) {
+        self.pc.write(v);
+    }
+    pub fn get_pc(&mut self) -> u16 {
+        self.pc.val()
+    }
+
+    pub fn pop_stack(&mut self) -> Result<u16, MemoryError> {
+        let sp = self.sp.val();
+        self.sp.write(sp + 2);
+        self.mem().lock().unwrap().read_word(sp)
+    }
+
+    pub fn push_stack(&mut self, data: u16) -> Result<(), MemoryError> {
+        let sp = self.sp.val() - 2;
+        self.sp.write(sp);
+        self.mem().lock().unwrap().write_word(sp, data)
+    }
+
     pub fn cc(&self, c: Option<Operand>) -> Result<bool, &'static str> {
         match c {
             Some(o) => match o {
@@ -321,6 +340,14 @@ impl CPU {
 
     pub fn halt(&mut self) {
         self.halted = true
+    }
+
+    pub fn disable_interrupts(&mut self) {
+        self.interrupts_enabled = false;
+    }
+
+    pub fn enable_interrupts(&mut self) {
+        self.interrupts_enabled = true;
     }
 
     fn decode(&self, opcode: u8) -> Result<Instruction, InstructionError> {
