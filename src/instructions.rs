@@ -321,6 +321,18 @@ impl BitIndex {
     }
 }
 
+impl From<Option<Operand>> for BitIndex {
+    fn from(value: Option<Operand>) -> Self {
+        match value {
+            Some(o) => match o {
+                Operand::B3(b3) => b3,
+                _ => panic!("operand canont be converted to Tgt3: {}", o),
+            },
+            _ => panic!("empty operand"),
+        }
+    }
+}
+
 impl Display for BitIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.index)
@@ -2020,6 +2032,17 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let r = cpu.read_byte(i.src())?;
+                let b3: BitIndex = i.dest().into();
+                let b3 = b3.index();
+                if bit::is_set(r, b3) {
+                    cpu.flag_set(Flag::Z);
+                }
+                cpu.flag_reset(Flag::N);
+                cpu.flag_set(Flag::HC);
+                Ok(())
+            };
             return Ok(i);
         }
         // res b3, r8
@@ -2035,6 +2058,14 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let mut r = cpu.read_byte(i.src())?;
+                let b3: BitIndex = i.dest().into();
+                let b3 = b3.index();
+                bit::reset(&mut r, b3);
+                cpu.write_byte(i.src(), r)?;
+                Ok(())
+            };
             return Ok(i);
         }
         // set b3, r8
@@ -2050,6 +2081,14 @@ fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
             } else {
                 i.cycles = 8;
             }
+            i.ex = |i, cpu| {
+                let mut r = cpu.read_byte(i.src())?;
+                let b3: BitIndex = i.dest().into();
+                let b3 = b3.index();
+                bit::set(&mut r, b3);
+                cpu.write_byte(i.src(), r)?;
+                Ok(())
+            };
             return Ok(i);
         }
         _ => (),
