@@ -1,610 +1,447 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    ops::AddAssign,
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 use thiserror::Error;
 
 use crate::{
-    bit,
-    instructions::{self, Cond, Instruction, InstructionError, Operand},
-    memory::{Memory, MemoryError},
-    registers::{Level, Register},
+    instructions::{Cond, INC, LD, Mem, R8, R16},
+    memory::Memory,
 };
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("CPU: operand value type mismatch")]
-    OperandValueTypeMismiatch,
-    #[error("CPU: memory error: {0}")]
-    MemoryError(MemoryError),
-    #[error("CPU: missing source operand")]
-    MissingSource,
-    #[error("CPU: missing destination operand")]
-    MissingDestination,
     #[error("CPU: unknown error")]
     Unknown,
 }
 
 pub struct CPU {
-    af: Register,
-    bc: Register,
-    de: Register,
-    hl: Register,
-    sp: Register,
-    pc: Register,
+    a: Register,
+    b: Register,
+    c: Register,
+    d: Register,
+    e: Register,
+    h: Register,
+    l: Register,
+    sp: u16,
+    pc: u16,
 
     mem: Arc<Mutex<Memory>>,
 
-    stopped: bool,
-    halted: bool,
-    interrupts_enabled: bool,
-}
+    zf: bool,
+    nf: bool,
+    hf: bool,
+    cf: bool,
 
-pub enum ByteRegister {
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-    A,
+    stop: bool,
+    halt: bool,
+    interrupts_enabled: bool,
 }
 
 #[derive(Clone, Copy)]
 pub enum Flag {
-    C = 4,
-    HC,
-    N,
     Z,
+    N,
+    H,
+    C,
+}
+
+struct Register(u8);
+
+impl Register {
+    pub fn new() -> Register {
+        Register(0)
+    }
+    pub fn val(&self) -> u8 {
+        self.0
+    }
+
+    pub fn write(&mut self, v: u8) {
+        self.0 = v
+    }
+
+    pub fn inc(&mut self) {
+        self.0 += 1
+    }
+
+    pub fn dec(&mut self) {
+        self.0 -= 1
+    }
+}
+
+impl AddAssign<u8> for Register {
+    fn add_assign(&mut self, rhs: u8) {
+        self.write(rhs);
+    }
+}
+
+impl AddAssign<u16> for Register {
+    fn add_assign(&mut self, rhs: u16) {
+        self.write((rhs & 0xFF) as u8);
+    }
+}
+
+impl From<u8> for Register {
+    fn from(value: u8) -> Self {
+        Register(value)
+    }
+}
+
+struct Word<'r> {
+    high: &'r mut Register,
+    low: &'r mut Register,
+}
+
+impl<'r> Word<'r> {
+    fn new(high: &'r mut Register, low: &'r mut Register) -> Word<'r> {
+        Word { high, low }
+    }
+
+    fn val(&self) -> u16 {
+        ((self.high.0 as u16) << 8) | (self.low.0 as u16)
+    }
+
+    fn write(&mut self, w: u16) {
+        self.low.0 = (w & 0xFF) as u8;
+        self.high.0 = ((w & 0xFF00) >> 8) as u8;
+    }
+
+    fn inc(&mut self) {
+        self.write(self.val() + 1)
+    }
+
+    fn dec(&mut self) {
+        self.write(self.val() - 1)
+    }
 }
 
 impl CPU {
     pub fn new(mem: Arc<Mutex<Memory>>) -> CPU {
         CPU {
-            af: Register::new(),
-            bc: Register::new(),
-            de: Register::new(),
-            hl: Register::new(),
-            sp: Register::new(),
-            pc: Register::new(),
+            a: Register::new(),
+            b: Register::new(),
+            c: Register::new(),
+            d: Register::new(),
+            e: Register::new(),
+            h: Register::new(),
+            l: Register::new(),
+            sp: 0,
+            pc: 0,
+            zf: false,
+            nf: false,
+            hf: false,
+            cf: false,
             mem,
-            stopped: false,
-            halted: false,
+            stop: false,
+            halt: false,
             interrupts_enabled: false,
         }
     }
 
-    pub fn flags(&self) -> u8 {
-        self.af().low()
-    }
-
-    pub fn read_byte(&mut self, r: Option<Operand>) -> Result<u8, &'static str> {
-        match r {
-            Some(o) => match o {
-                Operand::B => Ok(self.bc.read_byte(Level::High)),
-                Operand::D => Ok(self.de.read_byte(Level::High)),
-                Operand::H => Ok(self.hl.read_byte(Level::High)),
-                Operand::A => Ok(self.af.read_byte(Level::High)),
-                Operand::C => Ok(self.bc.read_byte(Level::Low)),
-                Operand::E => Ok(self.de.read_byte(Level::Low)),
-                Operand::L => Ok(self.hl.read_byte(Level::Low)),
-                Operand::Mem(o) => match *o {
-                    Operand::HL => {
-                        let addr = self.hl.val();
-                        let mem = self.mem.lock().unwrap();
-                        Ok(mem.read(addr).unwrap())
-                    }
-                    Operand::HLI => {
-                        let addr = self.hl.val();
-                        self.hl.inc();
-                        Ok(self.read_mem(addr).unwrap())
-                    }
-                    Operand::HLD => {
-                        let addr = self.hl.val();
-                        self.hl.dec();
-                        Ok(self.read_mem(addr).unwrap())
-                    }
-                    _ => return Err("invalid R8"),
-                },
-                _ => Err("invalid R8"),
-            },
-            None => Err("missing Operand"),
+    fn set_flag(&mut self, f: Flag) {
+        match f {
+            Flag::Z => self.zf = true,
+            Flag::N => self.nf = true,
+            Flag::H => self.hf = true,
+            Flag::C => self.cf = true,
         }
     }
 
-    pub fn flag_set(&mut self, f: Flag) {
-        let mut flags = self.af.low();
-        bit::set(&mut flags, f as u8);
-        self.af.write_byte(Level::Low, flags);
+    fn reset_flag(&mut self, f: Flag) {
+        match f {
+            Flag::Z => self.zf = false,
+            Flag::N => self.nf = false,
+            Flag::H => self.hf = false,
+            Flag::C => self.cf = false,
+        }
     }
 
-    pub fn flag_set_val(&mut self, f: Flag, v: u8) {
-        let v = v & 1;
-        if v == 1 {
-            self.flag_set(f);
+    pub fn set_flag_from_val(&mut self, f: Flag, v: u8) {
+        if (v & 1) == 1 {
+            self.set_flag(f);
         } else {
-            self.flag_reset(f);
+            self.reset_flag(f);
         }
     }
 
-    pub fn flag_invert(&mut self, f: Flag) {
-        if self.flag_is_set(f) {
-            self.flag_reset(f);
+    pub fn invert_flag(&mut self, f: Flag) {
+        if self.flag(f) {
+            self.reset_flag(f);
         } else {
-            self.flag_set(f);
+            self.set_flag(f);
         }
     }
 
-    pub fn flag_reset(&mut self, f: Flag) {
-        let mut flags = self.af.low();
-        bit::reset(&mut flags, f as u8);
-        self.af.write_byte(Level::Low, flags);
-    }
-
-    pub fn flag_is_set(&self, f: Flag) -> bool {
-        self.flag(f) == 1
-    }
-
-    pub fn flag(&self, f: Flag) -> u8 {
-        let flags = self.af.low();
-        bit::get(flags, f as u8)
-    }
-
-    pub fn clear_flags(&mut self) {
-        self.flag_reset(Flag::Z);
-        self.flag_reset(Flag::C);
-        self.flag_reset(Flag::HC);
-        self.flag_reset(Flag::N);
-    }
-
-    pub fn write_byte(&mut self, r: Option<Operand>, data: u8) -> Result<(), &'static str> {
-        match r {
-            Some(o) => match o {
-                Operand::B => self.bc.write_byte(Level::High, data),
-                Operand::D => self.de.write_byte(Level::High, data),
-                Operand::H => self.hl.write_byte(Level::High, data),
-                Operand::A => self.af.write_byte(Level::High, data),
-                Operand::C => self.bc.write_byte(Level::Low, data),
-                Operand::E => self.de.write_byte(Level::Low, data),
-                Operand::L => self.hl.write_byte(Level::Low, data),
-                Operand::Mem(o) => match *o {
-                    Operand::HL => {
-                        let addr = self.hl.val();
-                        let mut mem = self.mem.lock().unwrap();
-                        mem.write(addr, data).unwrap();
-                    }
-                    _ => return Err("invalid R8"),
-                },
-                _ => {
-                    return Err("invalid R8");
-                }
-            },
-            None => {
-                return Err("missing Operand");
-            }
-        }
-        Ok(())
-    }
-
-    pub fn inc_byte(&mut self, r: Option<Operand>) -> Result<u8, &'static str> {
-        let data = self.read_byte(r.clone())? + 1;
-        self.write_byte(r.clone(), data)?;
-        Ok(data)
-    }
-
-    pub fn dec_byte(&mut self, r: Option<Operand>) -> Result<u8, &'static str> {
-        let data = self.read_byte(r.clone())? - 1;
-        self.write_byte(r.clone(), data)?;
-        Ok(data)
-    }
-
-    pub fn af(&self) -> &Register {
-        &self.af
-    }
-
-    pub fn af_mut(&mut self) -> &mut Register {
-        &mut self.af
-    }
-
-    pub fn bc(&self) -> &Register {
-        &self.bc
-    }
-
-    pub fn bc_mut(&mut self) -> &mut Register {
-        &mut self.bc
-    }
-
-    pub fn de(&self) -> &Register {
-        &self.de
-    }
-
-    pub fn de_mut(&mut self) -> &mut Register {
-        &mut self.de
-    }
-
-    pub fn hl(&self) -> &Register {
-        &self.hl
-    }
-
-    pub fn hl_mut(&mut self) -> &mut Register {
-        &mut self.hl
-    }
-
-    pub fn mem(&mut self) -> Arc<Mutex<Memory>> {
-        self.mem.clone()
-    }
-
-    pub fn write(&mut self, r: Option<Operand>, data: u16) -> Result<(), &'static str> {
-        match r {
-            Some(o) => match o {
-                Operand::BC => self.bc.write(data),
-                Operand::DE => self.de.write(data),
-                Operand::HL => self.hl.write(data),
-                Operand::AF => self.hl.write(data),
-                Operand::SP => self.hl.write(data),
-                Operand::Mem(x) => {
-                    let addr = self.read(Some(*x))?;
-                    let mut mem = self.mem.lock().unwrap();
-                    mem.write_word(addr, data).unwrap();
-                }
-                _ => return Err("invalid R16"),
-            },
-            None => return Err("missing Operand"),
-        }
-        Ok(())
-    }
-
-    pub fn read_mem(&mut self, addr: u16) -> Result<u8, MemoryError> {
-        let mem = self.mem.lock().unwrap();
-        Ok(mem.read(addr)?)
-    }
-
-    pub fn read_mem_word(&mut self, addr: u16) -> Result<u16, MemoryError> {
-        let mem = self.mem.lock().unwrap();
-        Ok(mem.read_word(addr)?)
-    }
-
-    pub fn read(&mut self, r: Option<Operand>) -> Result<u16, &'static str> {
-        match r {
-            Some(o) => match o {
-                Operand::BC => Ok(self.bc.val()),
-                Operand::DE => Ok(self.de.val()),
-                Operand::HL => Ok(self.hl.val()),
-                Operand::AF => Ok(self.af.val()),
-                Operand::SP => Ok(self.sp.val()),
-                Operand::Mem(x) => {
-                    let addr = self.read(Some(*x))?;
-                    Ok(self.read_mem_word(addr).unwrap())
-                }
-                _ => Err("invalid R16"),
-            },
-            None => Err("missing Operand"),
+    pub fn flag(&self, f: Flag) -> bool {
+        match f {
+            Flag::Z => self.zf,
+            Flag::N => self.nf,
+            Flag::H => self.hf,
+            Flag::C => self.cf,
         }
     }
 
-    pub fn register(&mut self, r: Option<Operand>) -> Result<&mut Register, &'static str> {
-        match r {
-            Some(o) => match o {
-                Operand::BC => Ok(&mut self.bc),
-                Operand::DE => Ok(&mut self.de),
-                Operand::HL => Ok(&mut self.hl),
-                Operand::AF => Ok(&mut self.af),
-                Operand::SP => Ok(&mut self.sp),
-                _ => Err("invalid R16"),
-            },
-            None => Err("missing Operand"),
-        }
+    fn clear_flags(&mut self) {
+        self.zf = false;
+        self.nf = false;
+        self.hf = false;
+        self.cf = false;
     }
 
-    pub fn fetch(&mut self) -> Result<u8, MemoryError> {
-        let mem = self.mem.lock().unwrap();
-        let pc_val = self.pc.val();
-        self.pc.inc();
-        mem.read(pc_val)
+    fn af(&self) -> u16 {
+        let v = (self.a.val() as u16) << 8;
+        let mut f = (self.zf as u8) << 1;
+        f = (f | (self.nf as u8)) << 1;
+        f = (f | (self.hf as u8)) << 1;
+        f |= self.cf as u8;
+        v | ((f << 4) as u16)
     }
 
-    pub fn fetch_word(&mut self) -> Result<u16, MemoryError> {
-        let low = self.fetch()? as u16;
-        let high = self.fetch()? as u16;
-        Ok((high << 8) | low)
+    fn hl<'r>(&'r mut self) -> Word<'r> {
+        Word::new(&mut self.h, &mut self.l)
     }
 
-    pub fn jump_relative(&mut self, b: u8) -> Result<u16, &'static str> {
-        let addr = self.pc.val() + (b as u16);
-        self.pc.write(addr);
-        Ok(addr)
+    fn bc<'r>(&'r mut self) -> Word<'r> {
+        Word::new(&mut self.b, &mut self.c)
     }
 
-    pub fn jump_relative_word(&mut self, b: u16) -> Result<u16, &'static str> {
-        let addr = self.pc.val() + b;
-        self.pc.write(addr);
-        Ok(addr)
+    fn de<'r>(&'r mut self) -> Word<'r> {
+        Word::new(&mut self.d, &mut self.e)
     }
 
-    pub fn set_pc(&mut self, v: u16) {
-        self.pc.write(v);
-    }
-    pub fn get_pc(&mut self) -> u16 {
-        self.pc.val()
+    fn mem<'m>(&'m mut self) -> MutexGuard<'m, Memory> {
+        self.mem.lock().expect("error acquiring Memory mutex lock")
     }
 
-    pub fn pop_stack(&mut self) -> Result<u16, MemoryError> {
-        let sp = self.sp.val();
-        self.sp.write(sp + 2);
-        self.mem().lock().unwrap().read_word(sp)
+    pub fn fetch(&mut self) -> u8 {
+        let pc = self.pc;
+        self.pc += 1;
+        self.mem().read(pc)
     }
 
-    pub fn push_stack(&mut self, data: u16) -> Result<(), MemoryError> {
-        let sp = self.sp.val() - 2;
-        self.sp.write(sp);
-        self.mem().lock().unwrap().write_word(sp, data)
+    pub fn fetch_word(&mut self) -> u16 {
+        let low = self.fetch() as u16;
+        let high = self.fetch() as u16;
+        (high << 8) | low
     }
 
-    pub fn cc(&self, c: Option<Operand>) -> Result<bool, &'static str> {
+    //pub fn decode(&self) -> Instruction {
+    //    Instruction::new()
+    //}
+
+    //pub fn execute(&mut self, i: Instruction) {}
+
+    fn jp(&mut self, addr: u16) {
+        self.pc = addr
+    }
+
+    fn jr(&mut self, b: u8) {
+        self.pc += b as u16;
+    }
+
+    fn jr_word(&mut self, w: u16) {
+        self.pc += w;
+    }
+
+    fn pop(&mut self) -> u16 {
+        let sp = self.sp;
+        self.sp += 2;
+        self.mem().read_word(sp)
+    }
+
+    fn push(&mut self, v: u16) {
+        self.sp -= 2;
+        let sp = self.sp;
+        self.mem().write_word(sp, v);
+    }
+
+    fn cc(&self, c: Cond) -> bool {
         match c {
-            Some(o) => match o {
-                Operand::Cond(c) => match c {
-                    Cond::Z => Ok(self.flag_is_set(Flag::Z)),
-                    Cond::NZ => Ok(!self.flag_is_set(Flag::Z)),
-                    Cond::C => Ok(self.flag_is_set(Flag::C)),
-                    Cond::NC => Ok(!self.flag_is_set(Flag::C)),
-                },
-                _ => Err("incorrect operand type"),
+            Cond::Z => self.flag(Flag::Z),
+            Cond::NZ => !self.flag(Flag::Z),
+            Cond::C => self.flag(Flag::C),
+            Cond::NC => !self.flag(Flag::C),
+        }
+    }
+
+    fn ld(&mut self, op: LD) -> Result<(), ()> {
+        match op {
+            LD::R8(a, b) => {
+                let v = self.src_r8(b);
+                self.ld_r8(a, v);
+            }
+            LD::R16(a, b) => {
+                let v = self.src_r16(b);
+                self.ld_r16(a, v);
+            }
+            LD::MemR8(m, r) => {
+                let addr = self.mem_addr(m);
+                let v = self.src_r8(r);
+                self.mem().write(addr, v);
+            }
+            LD::MemR16(m, r) => {
+                let addr = self.mem_addr(m);
+                let v = self.src_r16(r);
+                self.mem().write_word(addr, v);
+            }
+            LD::R8Mem(r, m) => {
+                let addr = self.mem_addr(m);
+                let v = self.mem().read(addr);
+                self.ld_r8(r, v);
+            }
+        }
+        Ok(())
+    }
+
+    fn mem_addr(&mut self, m: Mem) -> u16 {
+        match m {
+            Mem::HL => self.hl().val(),
+            Mem::BC => self.bc().val(),
+            Mem::DE => self.de().val(),
+            Mem::SP => self.de().val(),
+            Mem::SPN8 => self.sp + (self.fetch() as u16),
+            Mem::N16 => self.fetch_word(),
+            Mem::N8 => (self.fetch() as u16) + 0xFF00,
+            Mem::C => (self.c.val() as u16) + 0xFF00,
+            Mem::HLI => {
+                let addr = self.hl().val();
+                self.hl().inc();
+                addr
+            }
+            Mem::HLD => {
+                let addr = self.hl().val();
+                self.hl().dec();
+                addr
+            }
+        }
+    }
+
+    fn ld_r16(&mut self, r: R16, v: u16) {
+        match r {
+            R16::HL => self.hl().write(v),
+            R16::BC => self.bc().write(v),
+            R16::SP => self.sp = v,
+            R16::N16 => panic!("attempt to load to n16 value"),
+            _ => panic!("attempt to write {:b} to {}", v, r),
+        }
+    }
+
+    fn ld_r8(&mut self, r: R8, v: u8) {
+        match r {
+            R8::A => self.a.write(v),
+            R8::B => self.b.write(v),
+            R8::C => self.c.write(v),
+            R8::D => self.d.write(v),
+            R8::E => self.e.write(v),
+            R8::H => self.h.write(v),
+            R8::L => self.l.write(v),
+            R8::HL => {
+                let addr = self.hl().val();
+                self.mem().write(addr, v);
+            }
+            R8::N8 => panic!("attempt to load to n8 value"),
+        }
+    }
+
+    fn src_r8(&mut self, r: R8) -> u8 {
+        match r {
+            R8::N8 => self.fetch(),
+            R8::A => self.a.val(),
+            R8::B => self.b.val(),
+            R8::C => self.c.val(),
+            R8::D => self.d.val(),
+            R8::E => self.e.val(),
+            R8::H => self.h.val(),
+            R8::L => self.l.val(),
+            R8::HL => {
+                let addr = self.hl().val();
+                return self.mem().read(addr);
+            }
+        }
+    }
+
+    fn src_r16(&mut self, r: R16) -> u16 {
+        match r {
+            R16::HL => self.hl().val(),
+            R16::BC => self.bc().val(),
+            R16::DE => self.de().val(),
+            R16::PC => self.pc,
+            R16::SP => self.sp,
+            R16::AF => self.af(),
+            R16::N16 => self.fetch_word(),
+        }
+    }
+
+    fn inc(&mut self, i: INC) {
+        match i {
+            INC::R8(r) => self.reg(r).inc(),
+            INC::R16(r) => match r {
+                R16::DE => self.de().inc(),
+                R16::BC => self.bc().inc(),
+                R16::HL => self.hl().inc(),
+                R16::SP => self.sp += 1,
+                R16::PC => self.pc += 1,
+                _ => panic!("attempt to increment {}", r),
             },
-            None => Err("missing operand"),
         }
     }
 
-    pub fn stop(&mut self) {
-        self.stopped = true
-    }
-
-    pub fn halt(&mut self) {
-        self.halted = true
-    }
-
-    pub fn disable_interrupts(&mut self) {
-        self.interrupts_enabled = false;
-    }
-
-    pub fn enable_interrupts(&mut self) {
-        self.interrupts_enabled = true;
-    }
-
-    fn decode(&self, opcode: u8) -> Result<Instruction, InstructionError> {
-        instructions::decode(opcode)
-    }
-
-    fn set_test_state(&mut self, ts: TestState) {
-        self.af.write_byte(Level::High, ts.a);
-        self.af.write_byte(Level::Low, ts.f);
-        self.bc.write_byte(Level::High, ts.b);
-        self.bc.write_byte(Level::Low, ts.c);
-        self.hl.write_byte(Level::High, ts.h);
-        self.hl.write_byte(Level::Low, ts.l);
-        self.pc.write(ts.pc);
-        self.sp.write(ts.sp);
-        for rs in ts.ram {
-            self.mem.lock().unwrap().write(rs.addr, rs.val).unwrap();
+    fn dec(&mut self, i: INC) {
+        match i {
+            INC::R8(r) => self.reg(r).dec(),
+            INC::R16(r) => match r {
+                R16::DE => self.de().dec(),
+                R16::BC => self.bc().dec(),
+                R16::HL => self.hl().dec(),
+                R16::SP => self.sp -= 1,
+                R16::PC => self.pc -= 1,
+                _ => panic!("attempt to decrement {}", r),
+            },
         }
     }
 
-    fn cmp_test_state(&mut self, ts: TestState) -> bool {
-        for rs in ts.ram {
-            let val = self.mem.lock().unwrap().read(rs.addr).unwrap();
-            if val != rs.val {
-                return false;
-            }
-        }
-        self.af.high() == ts.a
-            && self.af.low() == ts.f
-            && self.bc.high() == ts.b
-            && self.bc.low() == ts.c
-            && self.hl.high() == ts.h
-            && self.hl.low() == ts.l
-            && self.pc.val() == ts.pc
-            && self.sp.val() == ts.sp
-    }
-}
-
-type JSON = serde_json::Value;
-
-struct CPUTest {
-    name: String,
-    initial_state: TestState,
-    final_state: TestState,
-    cycles: Vec<Cycle>,
-}
-impl CPUTest {
-    fn from_json(j: JSON) -> Result<CPUTest, &'static str> {
-        match j {
-            JSON::Object(o) => Ok(CPUTest {
-                name: match o["name"].clone() {
-                    JSON::String(s) => s,
-                    _ => return Err("invalid JSON"),
-                },
-                initial_state: TestState::from_json(o["initial"].clone())?,
-                final_state: TestState::from_json(o["initial"].clone())?,
-                cycles: to_test_cycle_arr(o["cycles"].clone())?,
-            }),
-            _ => Err("invalid JSON"),
+    fn reg(&mut self, r: R8) -> &mut Register {
+        match r {
+            R8::A => &mut self.a,
+            R8::B => &mut self.b,
+            R8::C => &mut self.c,
+            R8::D => &mut self.d,
+            R8::E => &mut self.e,
+            R8::H => &mut self.h,
+            R8::L => &mut self.l,
+            R8::N8 => panic!("attempt to return n8 as 8 bit register"),
+            R8::HL => panic!("attempt to return hl as 8 bit register"),
         }
     }
-}
-
-struct TestState {
-    a: u8,
-    b: u8,
-    c: u8,
-    d: u8,
-    e: u8,
-    f: u8,
-    h: u8,
-    l: u8,
-    pc: u16,
-    sp: u16,
-    ram: Vec<TestRamState>,
-}
-
-impl TestState {
-    pub fn from_json(v: JSON) -> Result<TestState, &'static str> {
-        match v {
-            JSON::Object(o) => Ok(TestState {
-                a: json_to_u8(o["a"].clone())?,
-                b: json_to_u8(o["b"].clone())?,
-                c: json_to_u8(o["c"].clone())?,
-                d: json_to_u8(o["d"].clone())?,
-                e: json_to_u8(o["e"].clone())?,
-                f: json_to_u8(o["f"].clone())?,
-                h: json_to_u8(o["h"].clone())?,
-                l: json_to_u8(o["l"].clone())?,
-                pc: json_to_u16(o["pc"].clone())?,
-                sp: json_to_u16(o["sp"].clone())?,
-                ram: to_test_ram_state_arr(o["ram"].clone())?,
-            }),
-            _ => Err("json cannot be converted to TestState"),
-        }
-    }
-}
-
-fn to_test_ram_state_arr(v: JSON) -> Result<Vec<TestRamState>, &'static str> {
-    match v {
-        JSON::Array(a) => {
-            let mut rs = vec![];
-            for j in a {
-                rs.push(to_test_ram_state(j)?);
-            }
-            Ok(rs)
-        }
-        _ => Err("invalid JSON number"),
-    }
-}
-
-fn to_test_cycle_arr(v: JSON) -> Result<Vec<Cycle>, &'static str> {
-    match v {
-        JSON::Array(a) => {
-            let mut tc = vec![];
-            for j in a {
-                tc.push(to_test_cycle(j)?);
-            }
-            Ok(tc)
-        }
-        _ => Err("invalid JSON number"),
-    }
-}
-
-fn to_test_ram_state(v: JSON) -> Result<TestRamState, &'static str> {
-    match v {
-        JSON::Array(a) => {
-            if a.len() != 2 {
-                return Err("invalid JSON ram state");
-            }
-            Ok(TestRamState {
-                addr: json_to_u16(a[0].clone())?,
-                val: json_to_u8(a[0].clone())?,
-            })
-        }
-        _ => Err("invalid JSON ram state"),
-    }
-}
-
-fn to_test_cycle(v: JSON) -> Result<Cycle, &'static str> {
-    match v {
-        JSON::Array(a) => {
-            if a.len() != 3 {
-                return Err("invalid JSON ram state");
-            }
-            Ok(Cycle::Some(TestCycle {
-                addr: json_to_u16(a[0].clone())?,
-                val: json_to_u8(a[1].clone())?,
-                cycle_type: json_to_cycle_type(a[2].clone())?,
-            }))
-        }
-        JSON::Null => Ok(Cycle::Null),
-        _ => Err("invalid JSON ram state"),
-    }
-}
-
-fn json_to_cycle_type(v: JSON) -> Result<TestCycleType, &'static str> {
-    match v {
-        JSON::String(s) => match s.as_str() {
-            "read" => Ok(TestCycleType::Read),
-            "write" => Ok(TestCycleType::Write),
-            _ => Err("invalid JSON cycle type"),
-        },
-        _ => Err("invalid cycle type"),
-    }
-}
-
-fn json_to_u8(v: JSON) -> Result<u8, &'static str> {
-    match v {
-        JSON::Number(n) => match n.as_u64() {
-            Some(u) => Ok(u as u8),
-            _ => Err("invalid JSON number"),
-        },
-        _ => Err("invalid JSON number"),
-    }
-}
-
-fn json_to_u16(v: JSON) -> Result<u16, &'static str> {
-    match v {
-        JSON::Number(n) => match n.as_u64() {
-            Some(u) => Ok(u as u16),
-            _ => Err("invalid JSON number"),
-        },
-        _ => Err("invalid JSON number"),
-    }
-}
-
-struct TestRamState {
-    addr: u16,
-    val: u8,
-}
-
-enum TestCycleType {
-    Read,
-    Write,
-}
-
-enum Cycle {
-    Some(TestCycle),
-    Null,
-}
-
-struct TestCycle {
-    addr: u16,
-    val: u8,
-    cycle_type: TestCycleType,
 }
 
 #[cfg(test)]
 mod test {
-    use std::{fs, io};
-
-    use serde_json::Value;
-
     use super::*;
 
     #[test]
     fn fetch() {
         let mem = Arc::new(Mutex::new(Memory::new()));
-        mem.lock().unwrap().write(0x00, 0xCC).unwrap();
+        mem.lock().unwrap().write(0x00, 0xCC);
         let expected = 0xCC;
 
         let mut cpu = CPU::new(mem);
-        let fetched = cpu.fetch().unwrap();
+        let fetched = cpu.fetch();
         assert_eq!(expected, fetched);
-        assert_eq!(cpu.pc.val(), 0x1);
+        assert_eq!(cpu.pc, 0x1);
     }
 
     #[test]
     fn fetch_word() {
         let mem = Arc::new(Mutex::new(Memory::new()));
-        mem.lock().unwrap().write(0x00, 0xCC).unwrap();
-        mem.lock().unwrap().write(0x01, 0xDD).unwrap();
+        mem.lock().unwrap().write(0x00, 0xCC);
+        mem.lock().unwrap().write(0x01, 0xDD);
         let expected_word = 0xDDCC;
         let mut cpu = CPU::new(mem);
-        let fetched = cpu.fetch_word().unwrap();
+        let fetched = cpu.fetch_word();
         assert_eq!(expected_word, fetched);
-        assert_eq!(cpu.pc.val(), 0x2);
+        assert_eq!(cpu.pc, 0x2);
     }
 
     #[test]
@@ -612,9 +449,9 @@ mod test {
         let mem = Arc::new(Mutex::new(Memory::new()));
         let mut cpu = CPU::new(mem);
         let byte = 0xFF;
-        let expected = cpu.pc.val() + (byte as u16);
-        cpu.jump_relative(byte).unwrap();
-        assert_eq!(cpu.pc.val(), expected);
+        let expected = cpu.pc + (byte as u16);
+        cpu.jr(byte);
+        assert_eq!(cpu.pc, expected);
     }
 
     #[test]
@@ -622,44 +459,47 @@ mod test {
         let mem = Arc::new(Mutex::new(Memory::new()));
         let mut cpu = CPU::new(mem);
         let word = 0xFF00;
-        let expected = cpu.pc.val() + word;
-        cpu.jump_relative_word(word).unwrap();
-        assert_eq!(cpu.pc.val(), expected);
+        let expected = cpu.pc + word;
+        cpu.jr_word(word);
+        assert_eq!(cpu.pc, expected);
     }
 
     #[test]
-    fn flags() {
+    fn af() {
         let mem = Arc::new(Mutex::new(Memory::new()));
         let mut cpu = CPU::new(mem);
         let byte = 0b0110_0110;
-        cpu.af.write_byte(Level::Low, byte);
-        assert_eq!(cpu.flags(), byte);
+        let expected = ((byte as u16) << 8) | 0b1000_0000;
+        cpu.set_flag(Flag::Z);
+        cpu.a.write(byte);
+        assert_eq!(cpu.af(), expected);
     }
 
     #[test]
     fn flag_set() {
         let mem = Arc::new(Mutex::new(Memory::new()));
         let mut cpu = CPU::new(mem);
-        assert_ne!(bit::get(cpu.af.low(), Flag::N as u8), 1);
-        cpu.flag_set(Flag::N);
-        assert_eq!(bit::get(cpu.af.low(), Flag::N as u8), 1);
+        cpu.set_flag(Flag::N);
+        assert!(cpu.nf);
     }
 
     #[test]
     fn flag_reset() {
         let mem = Arc::new(Mutex::new(Memory::new()));
         let mut cpu = CPU::new(mem);
-        cpu.flag_set(Flag::N);
-        assert_eq!(bit::get(cpu.af.low(), Flag::N as u8), 1);
-        cpu.flag_reset(Flag::N);
-        assert_eq!(bit::get(cpu.af.low(), Flag::N as u8), 0);
+        cpu.set_flag(Flag::N);
+        assert!(cpu.nf);
+        cpu.reset_flag(Flag::N);
+        assert!(!cpu.nf);
     }
 
     #[test]
-    fn flag_is_set() {
+    fn flag() {
         let mem = Arc::new(Mutex::new(Memory::new()));
-        let cpu = CPU::new(mem);
-        assert!(!bit::is_set(cpu.flags(), Flag::N as u8));
+        let mut cpu = CPU::new(mem);
+        assert!(!cpu.flag(Flag::Z));
+        cpu.set_flag(Flag::Z);
+        assert!(cpu.flag(Flag::Z));
     }
 
     #[test]
@@ -667,101 +507,63 @@ mod test {
         let mem = Arc::new(Mutex::new(Memory::new()));
         let mut cpu = CPU::new(mem);
         let f = Flag::C;
-        cpu.flag_set_val(f, 1);
-        assert!(cpu.flag_is_set(f));
-        cpu.flag_set_val(f, 0);
-        assert!(!cpu.flag_is_set(f));
-    }
-
-    #[test]
-    fn hlmem_byte() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
-
-        let addr = 0xFFEE;
-        let data = 0x99;
-        let op = Operand::Mem(Box::new(Operand::HL));
-
-        cpu.mem.lock().unwrap().write(addr, data).unwrap();
-        cpu.write(Some(Operand::HL), addr).unwrap();
-
-        let from_cpu = cpu.read_byte(Some(op)).unwrap();
-        assert_eq!(from_cpu, data);
-    }
-
-    #[test]
-    fn hlmem_word() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
-
-        let addr = 0xFFEE;
-        let data = 0x9900;
-        let op = Operand::Mem(Box::new(Operand::HL));
-
-        cpu.mem.lock().unwrap().write_word(addr, data).unwrap();
-        cpu.write(Some(Operand::HL), addr).unwrap();
-
-        let from_cpu = cpu.read(Some(op)).unwrap();
-        assert_eq!(from_cpu, data);
-    }
-
-    #[test]
-    fn inc_byte() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
-        let expect = cpu.bc.high() + 1;
-        cpu.inc_byte(Some(Operand::B)).unwrap();
-
-        assert_eq!(cpu.bc.high(), expect);
-    }
-
-    #[test]
-    fn dec_byte() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
-        cpu.bc.write_byte(Level::High, 0xFF);
-        let expect = cpu.bc.high() - 1;
-        cpu.dec_byte(Some(Operand::B)).unwrap();
-        assert_eq!(cpu.bc.high(), expect);
+        cpu.set_flag_from_val(f, 1);
+        assert!(cpu.cf);
+        cpu.set_flag_from_val(f, 0);
+        assert!(!cpu.cf);
     }
 
     #[test]
     fn cc() {
         let mem = Arc::new(Mutex::new(Memory::new()));
         let mut cpu = CPU::new(mem);
-        assert!(cpu.cc(Some(Operand::Cond(Cond::NZ))).unwrap());
-        assert!(cpu.cc(Some(Operand::Cond(Cond::NC))).unwrap());
-        cpu.flag_set(Flag::Z);
-        cpu.flag_set(Flag::C);
-        assert!(cpu.cc(Some(Operand::Cond(Cond::Z))).unwrap());
-        assert!(cpu.cc(Some(Operand::Cond(Cond::C))).unwrap());
+        assert!(cpu.cc(Cond::NZ));
+        assert!(cpu.cc(Cond::NC));
+        cpu.set_flag(Flag::Z);
+        cpu.set_flag(Flag::C);
+        assert!(cpu.cc(Cond::Z));
+        assert!(cpu.cc(Cond::C));
     }
 
     #[test]
-    fn test_cpu() {
-        let mut entries = fs::read_dir("./test_files")
-            .unwrap()
-            .map(|res| res.map(|e| e.path()))
-            .collect::<Result<Vec<_>, io::Error>>()
-            .unwrap();
-        entries.sort();
-        for e in entries {
-            let file = fs::read_to_string(e.to_str().unwrap()).unwrap();
-            let json: Value = serde_json::from_str(&file).unwrap();
-            match json {
-                JSON::Array(a) => {
-                    for test_json in a {
-                        let test = CPUTest::from_json(test_json).unwrap();
-                        let mem = Arc::new(Mutex::new(Memory::new()));
-                        let mut cpu = CPU::new(mem);
-                        cpu.set_test_state(test.initial_state);
-                        println!("test good");
-                        panic!("");
-                    }
-                }
-                _ => panic!("not arr"),
-            }
-            panic!("");
-        }
+    fn register() {
+        let byte = 0xFE;
+        let mut r: Register = byte.into();
+        assert_eq!(byte, r.val());
+        assert_eq!(r.0, r.val());
+
+        let byte = 0xF2;
+        r.write(byte);
+        assert_eq!(byte, r.val());
+    }
+
+    #[test]
+    fn word_register() {
+        let low_val = 0xFE;
+        let high_val = 0xFE;
+        let mut l: Register = low_val.into();
+        let mut h: Register = high_val.into();
+
+        let mut expected_word = ((high_val as u16) << 8) | (low_val as u16);
+
+        let mut w = Word::new(&mut h, &mut l);
+        assert_eq!(expected_word, w.val());
+
+        expected_word += 1;
+        w.inc();
+        assert_eq!(expected_word, w.val());
+
+        expected_word -= 1;
+        w.dec();
+        assert_eq!(expected_word, w.val());
+
+        let low_val = 0xCC;
+        let high_val = 0xDD;
+        expected_word = ((high_val as u16) << 8) | (low_val as u16);
+
+        w.write(expected_word);
+        assert_eq!(expected_word, w.val());
+        assert_eq!(l.0, low_val);
+        assert_eq!(h.0, high_val);
     }
 }
