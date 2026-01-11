@@ -673,26 +673,18 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.n = FlagBehavior::Set;
             return Ok(i);
         }
-        //
-        //        // ld r8, imm8
-        //        0b110 => {
-        //            i.op = Operation::LD;
-        //            let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
-        //            i.dest = Some(r.into());
-        //            i.src = Some(Operand::Imm8);
-        //            i.length = 2;
-        //            match r {
-        //                R8::HlMem => i.cycles = 12,
-        //                _ => i.cycles = 4,
-        //            }
-        //            i.ex = |i, cpu| {
-        //                let imm8 = cpu.fetch()?;
-        //                let r8 = i.src();
-        //                cpu.write_byte(r8, imm8)?;
-        //                Ok(())
-        //            };
-        //            return Ok(i);
-        //        }
+
+        // ld r8, n8
+        0b110 => {
+            let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
+            i.op = LD::R8(r, R8::N8).into();
+            i.length = 2;
+            match r {
+                R8::HL => i.cycles = (12, 0),
+                _ => i.cycles = (4, 0),
+            }
+            return Ok(i);
+        }
         //
         //        0b000 => {
         //            let bits_43 = (opcode & 0b0001_1000) >> 3;
