@@ -6,7 +6,7 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    instructions::{Cond, INC, LD, Mem, R8, R16},
+    instructions::{Cond, LD, Mem, R8, R16},
     memory::Memory,
 };
 
@@ -373,31 +373,51 @@ impl CPU {
         }
     }
 
-    fn inc(&mut self, i: INC) {
-        match i {
-            INC::R8(r) => self.reg(r).inc(),
-            INC::R16(r) => match r {
-                R16::DE => self.de().inc(),
-                R16::BC => self.bc().inc(),
-                R16::HL => self.hl().inc(),
-                R16::SP => self.sp += 1,
-                R16::PC => self.pc += 1,
-                _ => panic!("attempt to increment {}", r),
-            },
+    fn inc_r8(&mut self, r: R8) {
+        match r {
+            R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => {
+                self.reg(r).inc();
+            }
+            R8::HL => {
+                let addr = self.hl().val();
+                self.mem().inc(addr);
+            }
+            _ => panic!("attempt to increment {}", r),
         }
     }
 
-    fn dec(&mut self, i: INC) {
-        match i {
-            INC::R8(r) => self.reg(r).dec(),
-            INC::R16(r) => match r {
-                R16::DE => self.de().dec(),
-                R16::BC => self.bc().dec(),
-                R16::HL => self.hl().dec(),
-                R16::SP => self.sp -= 1,
-                R16::PC => self.pc -= 1,
-                _ => panic!("attempt to decrement {}", r),
-            },
+    fn inc_r16(&mut self, r: R16) {
+        match r {
+            R16::DE => self.de().inc(),
+            R16::BC => self.bc().inc(),
+            R16::HL => self.hl().inc(),
+            R16::SP => self.sp += 1,
+            R16::PC => self.pc += 1,
+            _ => panic!("attempt to increment {}", r),
+        }
+    }
+
+    fn dec_r8(&mut self, r: R8) {
+        match r {
+            R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => {
+                self.reg(r).dec();
+            }
+            R8::HL => {
+                let addr = self.hl().val();
+                self.mem().dec(addr);
+            }
+            _ => panic!("attempt to increment {}", r),
+        }
+    }
+
+    fn dec_r16(&mut self, r: R16) {
+        match r {
+            R16::DE => self.de().dec(),
+            R16::BC => self.bc().dec(),
+            R16::HL => self.hl().dec(),
+            R16::SP => self.sp -= 1,
+            R16::PC => self.pc -= 1,
+            _ => panic!("attempt to decrement {}", r),
         }
     }
 

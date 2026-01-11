@@ -102,6 +102,13 @@ impl Default for Instruction {
 }
 
 #[derive(Default)]
+pub enum FlagState {
+    #[default]
+    Reset,
+    Set,
+}
+
+#[derive(Default)]
 pub enum FlagBehavior {
     #[default]
     None,
@@ -109,7 +116,7 @@ pub enum FlagBehavior {
     Reset,
     Overflow(u8),
     Borrow(u8),
-    ResultIsZero,
+    IfZero(FlagState),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -124,6 +131,18 @@ pub enum R8 {
     A,
     N8,
 }
+
+pub const R8VALUES: [R8; 9] = [
+    R8::B,
+    R8::C,
+    R8::D,
+    R8::E,
+    R8::H,
+    R8::L,
+    R8::HL,
+    R8::A,
+    R8::N8,
+];
 
 impl TryFrom<u8> for R8 {
     type Error = Error;
@@ -382,7 +401,7 @@ impl Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let op: String = match self {
             Operation::NOP => String::from("nop"),
-            //Operation::LD => "ld",
+            Operation::LD(ld) => ld.to_string(),
             Operation::INC(inc) => inc.to_string(),
             Operation::DEC(dec) => dec.to_string(),
             Operation::ADD(add) => add.to_string(),
@@ -628,114 +647,104 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         }
         _ => (),
     }
-    //
-    //    let last_three = opcode & 0b111;
-    //    match last_three {
-    //        // inc r8
-    //        0b100 => {
-    //            i.op = Operation::INC;
-    //            let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
-    //            i.dest = Some(r.into());
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                let prev = cpu.read_byte(i.dest())?;
-    //                let result = cpu.inc_byte(i.dest())?;
-    //                cpu.flag_reset(Flag::N);
-    //                if result == 0 {
-    //                    cpu.flag_reset(Flag::Z);
-    //                }
-    //                if bit::add_overflow(prev, 1, 3) {
-    //                    cpu.flag_set(Flag::HC);
-    //                }
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //
-    //        // dec r8
-    //        0b101 => {
-    //            i.op = Operation::DEC;
-    //            let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
-    //            i.dest = Some(r.into());
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                let dest = i.dest();
-    //                let prev = cpu.read_byte(i.dest())?;
-    //
-    //                let result = cpu.inc_byte(i.dest())?;
-    //
-    //                cpu.flag_set(Flag::N);
-    //                if result == 0 {
-    //                    cpu.flag_set(Flag::Z);
-    //                }
-    //                if bit::sub_borrow(prev, 1, 4) {
-    //                    cpu.flag_set(Flag::HC);
-    //                }
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //
-    //        // ld r8, imm8
-    //        0b110 => {
-    //            i.op = Operation::LD;
-    //            let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
-    //            i.dest = Some(r.into());
-    //            i.src = Some(Operand::Imm8);
-    //            i.length = 2;
-    //            match r {
-    //                R8::HlMem => i.cycles = 12,
-    //                _ => i.cycles = 4,
-    //            }
-    //            i.ex = |i, cpu| {
-    //                let imm8 = cpu.fetch()?;
-    //                let r8 = i.src();
-    //                cpu.write_byte(r8, imm8)?;
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //
-    //        0b000 => {
-    //            let bits_43 = (opcode & 0b0001_1000) >> 3;
-    //            match bits_43 {
-    //                // jr imm8
-    //                0b11 => {
-    //                    i.op = Operation::JR;
-    //                    i.dest = Some(Operand::Imm8);
-    //                    i.length = 2;
-    //                    i.cycles = 12;
-    //                    i.ex = |i, cpu| {
-    //                        let imm8 = cpu.fetch()?;
-    //                        cpu.jump_relative(imm8)?;
-    //                        Ok(())
-    //                    };
-    //                    return Ok(i);
-    //                }
-    //                // jr cond, imm8
-    //                _ => {
-    //                    i.op = Operation::JR;
-    //                    let c = Cond::from_u8(bits_43)?;
-    //                    i.dest = Some(Operand::Cond(c));
-    //                    i.src = Some(Operand::Imm8);
-    //                    i.length = 2;
-    //                    i.cycles = 8;
-    //                    i.branch_cycles = 12;
-    //                    i.ex = |i, cpu| {
-    //                        if cpu.cc(i.src())? {
-    //                            let imm8 = cpu.fetch()?;
-    //                            cpu.jump_relative(imm8)?;
-    //                        }
-    //                        Ok(())
-    //                    };
-    //                    return Ok(i);
-    //                }
-    //            }
-    //        }
-    //        _ => (),
-    //    }
+
+    let last_three = opcode & 0b111;
+    match last_three {
+        // inc r8
+        0b100 => {
+            let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
+            i.op = INC::R8(r).into();
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.z = FlagBehavior::IfZero(FlagState::Reset);
+            i.n = FlagBehavior::Reset;
+            i.h = FlagBehavior::Overflow(3);
+            return Ok(i);
+        }
+        //
+        //        // dec r8
+        //        0b101 => {
+        //            i.op = Operation::DEC;
+        //            let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
+        //            i.dest = Some(r.into());
+        //            i.length = 1;
+        //            i.cycles = 4;
+        //            i.ex = |i, cpu| {
+        //                let dest = i.dest();
+        //                let prev = cpu.read_byte(i.dest())?;
+        //
+        //                let result = cpu.inc_byte(i.dest())?;
+        //
+        //                cpu.flag_set(Flag::N);
+        //                if result == 0 {
+        //                    cpu.flag_set(Flag::Z);
+        //                }
+        //                if bit::sub_borrow(prev, 1, 4) {
+        //                    cpu.flag_set(Flag::HC);
+        //                }
+        //                Ok(())
+        //            };
+        //            return Ok(i);
+        //        }
+        //
+        //        // ld r8, imm8
+        //        0b110 => {
+        //            i.op = Operation::LD;
+        //            let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
+        //            i.dest = Some(r.into());
+        //            i.src = Some(Operand::Imm8);
+        //            i.length = 2;
+        //            match r {
+        //                R8::HlMem => i.cycles = 12,
+        //                _ => i.cycles = 4,
+        //            }
+        //            i.ex = |i, cpu| {
+        //                let imm8 = cpu.fetch()?;
+        //                let r8 = i.src();
+        //                cpu.write_byte(r8, imm8)?;
+        //                Ok(())
+        //            };
+        //            return Ok(i);
+        //        }
+        //
+        //        0b000 => {
+        //            let bits_43 = (opcode & 0b0001_1000) >> 3;
+        //            match bits_43 {
+        //                // jr imm8
+        //                0b11 => {
+        //                    i.op = Operation::JR;
+        //                    i.dest = Some(Operand::Imm8);
+        //                    i.length = 2;
+        //                    i.cycles = 12;
+        //                    i.ex = |i, cpu| {
+        //                        let imm8 = cpu.fetch()?;
+        //                        cpu.jump_relative(imm8)?;
+        //                        Ok(())
+        //                    };
+        //                    return Ok(i);
+        //                }
+        //                // jr cond, imm8
+        //                _ => {
+        //                    i.op = Operation::JR;
+        //                    let c = Cond::from_u8(bits_43)?;
+        //                    i.dest = Some(Operand::Cond(c));
+        //                    i.src = Some(Operand::Imm8);
+        //                    i.length = 2;
+        //                    i.cycles = 8;
+        //                    i.branch_cycles = 12;
+        //                    i.ex = |i, cpu| {
+        //                        if cpu.cc(i.src())? {
+        //                            let imm8 = cpu.fetch()?;
+        //                            cpu.jump_relative(imm8)?;
+        //                        }
+        //                        Ok(())
+        //                    };
+        //                    return Ok(i);
+        //                }
+        //            }
+        //        }
+        _ => (),
+    }
     //
     //    match opcode {
     //        // rlca

@@ -27,6 +27,14 @@ impl Memory {
         self.write(addr, low);
         self.write(addr + 1, high);
     }
+
+    pub fn inc(&mut self, addr: u16) {
+        self.m[addr as usize] += 1;
+    }
+
+    pub fn dec(&mut self, addr: u16) {
+        self.m[addr as usize] -= 1;
+    }
 }
 
 #[cfg(test)]
