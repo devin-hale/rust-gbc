@@ -407,17 +407,17 @@ impl Display for Operation {
             Operation::INC(inc) => inc.to_string(),
             Operation::DEC(dec) => dec.to_string(),
             Operation::ADD(add) => add.to_string(),
-            //Operation::RLCA => "rlca",
-            //Operation::RRCA => "rrca",
-            //Operation::RLA => "rla",
-            //Operation::RRA => "rra",
-            //Operation::DAA => "daa",
-            //Operation::CPL => "cpl",
-            //Operation::SCF => "scf",
-            //Operation::CCF => "ccf",
+            Operation::RLCA => "rlca".to_string(),
+            Operation::RRCA => "rrca".to_string(),
+            Operation::RLA => "rla".to_string(),
+            Operation::RRA => "rra".to_string(),
+            Operation::DAA => "daa".to_string(),
+            Operation::CPL => "cpl".to_string(),
+            Operation::SCF => "scf".to_string(),
+            Operation::CCF => "ccf".to_string(),
             Operation::JR(jr) => jr.to_string(),
             Operation::STOP => String::from("stop"),
-            //Operation::HALT => "halt",
+            Operation::HALT => String::from("halt"),
             //Operation::ADC => "adc",
             //Operation::SUB => "sub",
             //Operation::SBC => "sbc",
@@ -824,32 +824,32 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
 
     Err(DecodeError::Unimplemented(opcode).into())
 }
-//
-//fn decode_block_1(opcode: u8) -> Result<Instruction, InstructionError> {
-//    if opcode == 0b0111_0110 {
-//        return Ok(Instruction::halt());
-//    } else {
-//        // ld r8, r8
-//        let dest = (opcode & 0b0011_1000) >> 4;
-//        let dest = R8::from_u8(dest)?;
-//        let src = (opcode & 0b0000_0111) >> 4;
-//        let src = R8::from_u8(src)?;
-//
-//        let mut i = Instruction::new();
-//        i.op = Operation::LD;
-//        i.dest = Some(dest.into());
-//        i.src = Some(src.into());
-//
-//        i.length = 1;
-//        if dest == R8::HlMem || src == R8::HlMem {
-//            i.cycles = 8;
-//        } else {
-//            i.cycles = 4;
-//        }
-//
-//        return Ok(i);
-//    }
-//}
+
+fn decode_block_1(opcode: u8) -> Result<Instruction, Error> {
+    if opcode == 0b0111_0110 {
+        return Ok(Instruction {
+            opcode,
+            op: Operation::HALT,
+            ..Default::default()
+        });
+    } else {
+        // ld r8, r8
+        let dest: R8 = ((opcode & 0b0011_1000) >> 4).try_into()?;
+        let src: R8 = ((opcode & 0b0000_0111) >> 4).try_into()?;
+        let mut i = Instruction::new();
+        i.length = 1;
+        if dest == R8::HL {
+            i.op = LD::MemR8(Mem::HL, src).into();
+            i.cycles = (8, 0);
+        } else if src == R8::HL {
+            i.op = LD::R8Mem(dest, Mem::HL).into();
+            i.cycles = (8, 0);
+        } else {
+            i.op = LD::R8(dest, src).into();
+        }
+        return Ok(i);
+    }
+}
 //
 //fn decode_block_2(opcode: u8) -> Result<Instruction, InstructionError> {
 //    let mut i = Instruction::new();
