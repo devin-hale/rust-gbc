@@ -661,31 +661,18 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.h = FlagBehavior::Overflow(3);
             return Ok(i);
         }
-        //
-        //        // dec r8
-        //        0b101 => {
-        //            i.op = Operation::DEC;
-        //            let r = R8::from_u8((opcode & 0b0011_1000) >> 3)?;
-        //            i.dest = Some(r.into());
-        //            i.length = 1;
-        //            i.cycles = 4;
-        //            i.ex = |i, cpu| {
-        //                let dest = i.dest();
-        //                let prev = cpu.read_byte(i.dest())?;
-        //
-        //                let result = cpu.inc_byte(i.dest())?;
-        //
-        //                cpu.flag_set(Flag::N);
-        //                if result == 0 {
-        //                    cpu.flag_set(Flag::Z);
-        //                }
-        //                if bit::sub_borrow(prev, 1, 4) {
-        //                    cpu.flag_set(Flag::HC);
-        //                }
-        //                Ok(())
-        //            };
-        //            return Ok(i);
-        //        }
+
+        // dec r8
+        0b101 => {
+            let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
+            i.op = DEC::R8(r).into();
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.z = FlagBehavior::IfZero(FlagState::Set);
+            i.h = FlagBehavior::Borrow(4);
+            i.n = FlagBehavior::Set;
+            return Ok(i);
+        }
         //
         //        // ld r8, imm8
         //        0b110 => {
