@@ -6,6 +6,7 @@ use std::{
 use thiserror::Error;
 
 use crate::{
+    bit,
     instructions::{Cond, LD, Mem, R8, R16},
     memory::Memory,
 };
@@ -61,12 +62,14 @@ impl Register {
         self.0 = v
     }
 
-    pub fn inc(&mut self) {
-        self.0 += 1
+    pub fn inc(&mut self) -> u8 {
+        self.0 += 1;
+        self.0
     }
 
-    pub fn dec(&mut self) {
-        self.0 -= 1
+    pub fn dec(&mut self) -> u8 {
+        self.0 -= 1;
+        self.0
     }
 }
 
@@ -107,12 +110,14 @@ impl<'r> Word<'r> {
         self.high.0 = ((w & 0xFF00) >> 8) as u8;
     }
 
-    fn inc(&mut self) {
-        self.write(self.val() + 1)
+    fn inc(&mut self) -> u16 {
+        self.write(self.val() + 1);
+        self.val()
     }
 
-    fn dec(&mut self) {
-        self.write(self.val() - 1)
+    fn dec(&mut self) -> u16 {
+        self.write(self.val() - 1);
+        self.val()
     }
 }
 
@@ -373,50 +378,58 @@ impl CPU {
         }
     }
 
-    fn inc_r8(&mut self, r: R8) {
+    fn inc_r8(&mut self, r: R8) -> u8 {
         match r {
-            R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => {
-                self.reg(r).inc();
-            }
+            R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).inc(),
             R8::HL => {
                 let addr = self.hl().val();
-                self.mem().inc(addr);
+                self.mem().inc(addr)
             }
             _ => panic!("attempt to increment {}", r),
         }
     }
 
-    fn inc_r16(&mut self, r: R16) {
+    fn inc_r16(&mut self, r: R16) -> u16 {
         match r {
             R16::DE => self.de().inc(),
             R16::BC => self.bc().inc(),
             R16::HL => self.hl().inc(),
-            R16::SP => self.sp += 1,
-            R16::PC => self.pc += 1,
+            R16::SP => {
+                self.sp += 1;
+                return self.sp;
+            }
+            R16::PC => {
+                self.pc += 1;
+                return self.pc;
+            }
             _ => panic!("attempt to increment {}", r),
         }
     }
 
-    fn dec_r8(&mut self, r: R8) {
+    fn dec_r8(&mut self, r: R8) -> u8 {
         match r {
-            R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => {
-                self.reg(r).dec();
-            }
+            R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).dec(),
             R8::HL => {
                 let addr = self.hl().val();
-                self.mem().dec(addr);
+                self.mem().dec(addr)
             }
             _ => panic!("attempt to increment {}", r),
         }
     }
 
-    fn dec_r16(&mut self, r: R16) {
+    fn dec_r16(&mut self, r: R16) -> u16 {
         match r {
             R16::DE => self.de().dec(),
             R16::BC => self.bc().dec(),
             R16::HL => self.hl().dec(),
-            R16::SP => self.sp -= 1,
-            R16::PC => self.pc -= 1,
+            R16::SP => {
+                self.sp += 1;
+                return self.sp;
+            }
+            R16::PC => {
+                self.pc += 1;
+                return self.pc;
+            }
             _ => panic!("attempt to decrement {}", r),
         }
     }
@@ -433,6 +446,78 @@ impl CPU {
             R8::N8 => panic!("attempt to return n8 as 8 bit register"),
             R8::HL => panic!("attempt to return hl as 8 bit register"),
         }
+    }
+
+    fn rlc_r8(&mut self, r: R8) -> u8 {
+        let val = self.reg(r).val();
+        let b7 = bit::get(val, 7);
+        self.set_flag_from_val(Flag::C, b7);
+        let val = (val << 1) + b7;
+        self.reg(r).write(val);
+        val
+    }
+
+    fn rrc_r8(&mut self, r: R8) -> u8 {
+        let val = self.reg(r).val();
+        let b0 = bit::get(val, 0);
+        self.set_flag_from_val(Flag::C, b0);
+        let val = (val >> 1) + (b0 << 7);
+        self.reg(r).write(val);
+        val
+    }
+
+    fn rl_r8(&mut self, r: R8) -> u8 {
+        let val = self.reg(r).val();
+        let cf = self.cf as u8;
+        let b7 = bit::get(val, 7);
+        self.set_flag_from_val(Flag::C, b7);
+        let val = (val << 1) + cf;
+        self.reg(r).write(val);
+        val
+    }
+
+    fn rr_r8(&mut self, r: R8) -> u8 {
+        let val = self.reg(r).val();
+        let cf = self.cf as u8;
+        let b0 = bit::get(val, 0);
+        self.set_flag_from_val(Flag::C, b0);
+        let val = (val >> 1) + (cf << 7);
+        self.reg(r).write(val);
+        val
+    }
+
+    fn daa(&mut self) -> u8 {
+        let a = self.a.val();
+        if self.flag(Flag::N) {
+            let mut adj = 0;
+            if self.flag(Flag::H) {
+                adj += 0x6;
+            }
+            if self.flag(Flag::C) {
+                adj += 0x60;
+            }
+            let result = a - adj;
+            self.a.write(result);
+            return result;
+        } else {
+            let mut adj = 0;
+            if self.flag(Flag::H) || (a & 0xF) > 0x9 {
+                adj += 0x6;
+            }
+            if self.flag(Flag::C) || a > 0x99 {
+                adj += 0x60;
+                self.set_flag(Flag::C);
+            }
+            let result = a + adj;
+            self.a.write(result);
+            return result;
+        }
+    }
+
+    fn cpl(&mut self) -> u8 {
+        let v = !self.a.val();
+        self.a.write(v);
+        v
     }
 }
 

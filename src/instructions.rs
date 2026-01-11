@@ -117,6 +117,8 @@ pub enum FlagBehavior {
     Overflow(u8),
     Borrow(u8),
     IfZero(FlagState),
+    Invert,
+    Dependent,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -363,7 +365,7 @@ pub enum Operation {
     CPL,
     SCF,
     CCF,
-    JR,
+    JR(JR),
     STOP,
     HALT,
     ADC,
@@ -413,7 +415,7 @@ impl Display for Operation {
             //Operation::CPL => "cpl",
             //Operation::SCF => "scf",
             //Operation::CCF => "ccf",
-            //Operation::JR => "jr",
+            Operation::JR(jr) => jr.to_string(),
             Operation::STOP => String::from("stop"),
             //Operation::HALT => "halt",
             //Operation::ADC => "adc",
@@ -549,6 +551,28 @@ impl Display for DEC {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum JR {
+    N8,
+    Cond(Cond),
+}
+
+impl From<JR> for Operation {
+    fn from(value: JR) -> Self {
+        Operation::JR(value)
+    }
+}
+
+impl Display for JR {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            JR::N8 => String::from("n8"),
+            JR::Cond(c) => format!("{}, n8", c),
+        };
+        write!(f, "jr {}", s)
+    }
+}
+
 pub fn decode(opcode: u8) -> Result<Instruction, Error> {
     match (opcode >> 6) & 0x3 {
         0x00 => Ok(decode_block_0(opcode)?),
@@ -577,8 +601,10 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         return Ok(i);
     }
 
-    let mut i = Instruction::new();
-    i.opcode = opcode;
+    let mut i = Instruction {
+        opcode,
+        ..Default::default()
+    };
     let last_four = opcode & 0b1111;
     match last_four {
         // ld r16, n16
@@ -685,195 +711,117 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             }
             return Ok(i);
         }
-        //
-        //        0b000 => {
-        //            let bits_43 = (opcode & 0b0001_1000) >> 3;
-        //            match bits_43 {
-        //                // jr imm8
-        //                0b11 => {
-        //                    i.op = Operation::JR;
-        //                    i.dest = Some(Operand::Imm8);
-        //                    i.length = 2;
-        //                    i.cycles = 12;
-        //                    i.ex = |i, cpu| {
-        //                        let imm8 = cpu.fetch()?;
-        //                        cpu.jump_relative(imm8)?;
-        //                        Ok(())
-        //                    };
-        //                    return Ok(i);
-        //                }
-        //                // jr cond, imm8
-        //                _ => {
-        //                    i.op = Operation::JR;
-        //                    let c = Cond::from_u8(bits_43)?;
-        //                    i.dest = Some(Operand::Cond(c));
-        //                    i.src = Some(Operand::Imm8);
-        //                    i.length = 2;
-        //                    i.cycles = 8;
-        //                    i.branch_cycles = 12;
-        //                    i.ex = |i, cpu| {
-        //                        if cpu.cc(i.src())? {
-        //                            let imm8 = cpu.fetch()?;
-        //                            cpu.jump_relative(imm8)?;
-        //                        }
-        //                        Ok(())
-        //                    };
-        //                    return Ok(i);
-        //                }
-        //            }
-        //        }
+
+        0b000 => {
+            let bits_43 = (opcode & 0b0001_1000) >> 3;
+            match bits_43 {
+                // jr n8
+                0b11 => {
+                    i.op = JR::N8.into();
+                    i.length = 2;
+                    i.cycles = (12, 0);
+                    return Ok(i);
+                }
+                // jr cond, n8
+                _ => {
+                    let c: Cond = bits_43.try_into()?;
+                    i.op = JR::Cond(c).into();
+                    i.length = 2;
+                    i.cycles = (8, 12);
+                    return Ok(i);
+                }
+            }
+        }
         _ => (),
     }
-    //
-    //    match opcode {
-    //        // rlca
-    //        0b0000_0111 => {
-    //            i.op = Operation::RLCA;
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                cpu.clear_flags();
-    //                let a = cpu.read_byte(Some(Operand::A))?;
-    //                let a7 = bit::get(a, 7);
-    //                cpu.flag_set_val(Flag::C, a7);
-    //                let a = (a << 1) + a7;
-    //                cpu.write_byte(Some(Operand::A), a)?;
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //        // rrca
-    //        0b0000_1111 => {
-    //            i.op = Operation::RRCA;
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                cpu.clear_flags();
-    //                let a = cpu.read_byte(Some(Operand::A))?;
-    //                let a0 = bit::get(a, 0);
-    //                cpu.flag_set_val(Flag::C, a0);
-    //                let a = (a >> 1) + (a0 << 7);
-    //                cpu.write_byte(Some(Operand::A), a)?;
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //        // rla
-    //        0b0001_0111 => {
-    //            i.op = Operation::RLA;
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                cpu.clear_flags();
-    //                let a = cpu.read_byte(Some(Operand::A))?;
-    //                let cf = cpu.flag(Flag::C);
-    //                let a7 = bit::get(a, 7);
-    //                cpu.flag_set_val(Flag::C, a7);
-    //                let a = (a << 1) + cf;
-    //                cpu.write_byte(Some(Operand::A), a)?;
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //        // rra
-    //        0b0001_1111 => {
-    //            i.op = Operation::RRA;
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                cpu.clear_flags();
-    //                let a = cpu.read_byte(Some(Operand::A))?;
-    //                let cf = cpu.flag(Flag::C);
-    //                let a0 = bit::get(a, 0);
-    //                cpu.flag_set_val(Flag::C, a0);
-    //                let a = (a >> 1) + (cf << 7);
-    //                cpu.write_byte(Some(Operand::A), a)?;
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //        // daa
-    //        0b0010_0111 => {
-    //            i.op = Operation::DAA;
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                let a = cpu.read_byte(Some(Operand::A))?;
-    //                if cpu.flag_is_set(Flag::N) {
-    //                    let mut adj = 0;
-    //                    if cpu.flag_is_set(Flag::HC) {
-    //                        adj += 0x6;
-    //                    }
-    //                    if cpu.flag_is_set(Flag::C) {
-    //                        adj += 0x60;
-    //                    }
-    //                    let result = a - adj;
-    //                    if result == 0 {
-    //                        cpu.flag_set(Flag::Z);
-    //                    }
-    //                    cpu.write_byte(Some(Operand::A), result)?;
-    //                } else {
-    //                    let mut adj = 0;
-    //                    if cpu.flag_is_set(Flag::HC) || (a & 0xF) > 0x9 {
-    //                        adj += 0x6;
-    //                    }
-    //                    if cpu.flag_is_set(Flag::C) || a > 0x99 {
-    //                        adj += 0x60;
-    //                        cpu.flag_set(Flag::C);
-    //                    }
-    //                    let result = a + adj;
-    //                    if result == 0 {
-    //                        cpu.flag_set(Flag::Z);
-    //                    }
-    //                    cpu.write_byte(Some(Operand::A), result)?;
-    //                }
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //        // cpl
-    //        0b0010_1111 => {
-    //            i.op = Operation::CPL;
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                let a = cpu.read_byte(Some(Operand::A))?;
-    //                cpu.write_byte(Some(Operand::A), !a)?;
-    //                cpu.flag_set(Flag::N);
-    //                cpu.flag_set(Flag::HC);
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //        // scf
-    //        0b0011_0111 => {
-    //            i.op = Operation::SCF;
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                cpu.flag_reset(Flag::N);
-    //                cpu.flag_reset(Flag::HC);
-    //                cpu.flag_set(Flag::C);
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //        // ccf
-    //        0b0011_1111 => {
-    //            i.op = Operation::CCF;
-    //            i.length = 1;
-    //            i.cycles = 4;
-    //            i.ex = |i, cpu| {
-    //                cpu.flag_reset(Flag::N);
-    //                cpu.flag_reset(Flag::HC);
-    //                cpu.flag_invert(Flag::C);
-    //                Ok(())
-    //            };
-    //            return Ok(i);
-    //        }
-    //        _ => (),
-    //    }
-    //
+
+    match opcode {
+        // rlca
+        0b0000_0111 => {
+            i.op = Operation::RLCA;
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.z = FlagBehavior::Reset;
+            i.n = FlagBehavior::Reset;
+            i.h = FlagBehavior::Reset;
+            i.c = FlagBehavior::Dependent;
+            return Ok(i);
+        }
+        // rrca
+        0b0000_1111 => {
+            i.op = Operation::RRCA;
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.z = FlagBehavior::Reset;
+            i.n = FlagBehavior::Reset;
+            i.h = FlagBehavior::Reset;
+            i.c = FlagBehavior::Dependent;
+            return Ok(i);
+        }
+        // rla
+        0b0001_0111 => {
+            i.op = Operation::RLA;
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.z = FlagBehavior::Reset;
+            i.n = FlagBehavior::Reset;
+            i.h = FlagBehavior::Reset;
+            i.c = FlagBehavior::Dependent;
+            return Ok(i);
+        }
+        // rra
+        0b0001_1111 => {
+            i.op = Operation::RRA;
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.z = FlagBehavior::Reset;
+            i.n = FlagBehavior::Reset;
+            i.h = FlagBehavior::Reset;
+            i.c = FlagBehavior::Dependent;
+            return Ok(i);
+        }
+        // daa
+        0b0010_0111 => {
+            i.op = Operation::DAA;
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.h = FlagBehavior::Reset;
+            i.c = FlagBehavior::Dependent;
+            i.z = FlagBehavior::IfZero(FlagState::Set);
+            return Ok(i);
+        }
+        // cpl
+        0b0010_1111 => {
+            i.op = Operation::CPL;
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.n = FlagBehavior::Set;
+            i.h = FlagBehavior::Set;
+            return Ok(i);
+        }
+        // scf
+        0b0011_0111 => {
+            i.op = Operation::SCF;
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.n = FlagBehavior::Reset;
+            i.h = FlagBehavior::Reset;
+            i.c = FlagBehavior::Set;
+            return Ok(i);
+        }
+        // ccf
+        0b0011_1111 => {
+            i.op = Operation::CCF;
+            i.length = 1;
+            i.cycles = (4, 0);
+            i.n = FlagBehavior::Reset;
+            i.h = FlagBehavior::Reset;
+            i.c = FlagBehavior::Invert;
+            return Ok(i);
+        }
+        _ => (),
+    }
+
     Err(DecodeError::Unimplemented(opcode).into())
 }
 //

@@ -28,12 +28,14 @@ impl Memory {
         self.write(addr + 1, high);
     }
 
-    pub fn inc(&mut self, addr: u16) {
+    pub fn inc(&mut self, addr: u16) -> u8 {
         self.m[addr as usize] += 1;
+        self.read(addr)
     }
 
-    pub fn dec(&mut self, addr: u16) {
+    pub fn dec(&mut self, addr: u16) -> u8 {
         self.m[addr as usize] -= 1;
+        self.read(addr)
     }
 }
 
