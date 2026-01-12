@@ -303,6 +303,12 @@ impl Display for B3 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct T3(u8);
 
+impl T3 {
+    pub fn val(&self) -> u8 {
+        self.0
+    }
+}
+
 impl From<u8> for T3 {
     fn from(value: u8) -> Self {
         T3(value / 8)
@@ -347,13 +353,16 @@ pub enum Operation {
     OR(R8),
     CP(R8),
     RET,
+    RETC(Cond),
     RETI,
-    JP,
+    JP(R16),
+    JPC(Cond, R16),
     CALL,
-    RST,
-    POP,
-    PUSH,
-    LDH,
+    CALLC(Cond),
+    RST(T3),
+    POP(R16),
+    PUSH(R16),
+    LDH(LDH),
     DI,
     EI,
     RR,
@@ -378,14 +387,14 @@ impl Display for Operation {
             Operation::INC(inc) => inc.to_string(),
             Operation::DEC(dec) => dec.to_string(),
             Operation::ADD(add) => add.to_string(),
-            Operation::RLCA => "rlca".to_string(),
-            Operation::RRCA => "rrca".to_string(),
-            Operation::RLA => "rla".to_string(),
-            Operation::RRA => "rra".to_string(),
-            Operation::DAA => "daa".to_string(),
-            Operation::CPL => "cpl".to_string(),
-            Operation::SCF => "scf".to_string(),
-            Operation::CCF => "ccf".to_string(),
+            Operation::RLCA => String::from("rlca"),
+            Operation::RRCA => String::from("rrca"),
+            Operation::RLA => String::from("rla"),
+            Operation::RRA => String::from("rra"),
+            Operation::DAA => String::from("daa"),
+            Operation::CPL => String::from("cpl"),
+            Operation::SCF => String::from("scf"),
+            Operation::CCF => String::from("ccf"),
             Operation::JR(jr) => jr.to_string(),
             Operation::STOP => String::from("stop"),
             Operation::HALT => String::from("halt"),
@@ -396,16 +405,19 @@ impl Display for Operation {
             Operation::XOR(r) => format!("xor a, {}", r),
             Operation::OR(r) => format!("or a, {}", r),
             Operation::CP(r) => format!("cp a, {}", r),
-            //Operation::RET => "ret",
-            //Operation::RETI => "reti",
-            //Operation::JP => "jp",
-            //Operation::CALL => "call",
-            //Operation::RST => "rst",
-            //Operation::POP => "pop",
-            //Operation::PUSH => "push",
-            //Operation::LDH => "ldh",
-            //Operation::DI => "di",
-            //Operation::EI => "ei",
+            Operation::RET => String::from("ret"),
+            Operation::RETC(c) => format!("ret {}", c),
+            Operation::RETI => String::from("reti"),
+            Operation::JP(r) => format!("jp {}", r),
+            Operation::JPC(c, r) => format!("jp {}, {}", c, r),
+            Operation::CALL => format!("call n16"),
+            Operation::CALLC(c) => format!("call {}, n16", c),
+            Operation::RST(t) => format!("rst {}", t),
+            Operation::POP(r) => format!("pop {}", r),
+            Operation::PUSH(r) => format!("push {}", r),
+            Operation::LDH(ldh) => ldh.to_string(),
+            Operation::DI => String::from("di"),
+            Operation::EI => String::from("ei"),
             //Operation::RR => "rr",
             //Operation::RLC => "rlc",
             //Operation::RRC => "rrc",
@@ -456,6 +468,7 @@ pub enum LD {
     MemR8(Mem, R8),
     R8Mem(R8, Mem),
     MemR16(Mem, R16),
+    HLSPN,
 }
 
 impl From<LD> for Operation {
@@ -473,8 +486,31 @@ impl Display for LD {
             LD::MemR8(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
             LD::R8Mem(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
             LD::MemR16(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
+            LD::HLSPN => s.push_str("hl, sp + n8"),
         }
         write!(f, "{}", s)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LDH {
+    A(Mem),
+    Mem(Mem),
+}
+
+impl From<LDH> for Operation {
+    fn from(value: LDH) -> Self {
+        Operation::LDH(value)
+    }
+}
+
+impl Display for LDH {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            LDH::A(m) => format!("a, {}", m),
+            LDH::Mem(m) => format!("{}, a", m),
+        };
+        write!(f, "ldh {}", s)
     }
 }
 
@@ -842,590 +878,263 @@ fn decode_block_2(opcode: u8) -> Result<Instruction, Error> {
 
     Err(Error::Unknown)
 }
-//
-//const INVALID_OPCODES: [u8; 11] = [
-//    0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
-//];
-//
-//fn decode_block_3(opcode: u8) -> Result<Instruction, InstructionError> {
-//    if INVALID_OPCODES.contains(&opcode) {
-//        return Err(InstructionError::InvalidOpCode(opcode));
-//    }
-//
-//    let mut i = Instruction::new();
-//    // Prefix
-//    if opcode == 0b1100_1011 {
-//        i.op = Operation::PREFIX;
-//        i.length = 1;
-//        i.cycles = 4;
-//        return Ok(i);
-//    }
-//
-//    if (opcode & 0b111) == 0b110 {
-//        i.dest = Some(R8::A.into());
-//        i.src = Some(Operand::Imm8);
-//        i.length = 2;
-//        i.cycles = 8;
-//
-//        match (opcode & 0b0011_1000) >> 3 {
-//            // add a, imm8
-//            0 => {
-//                i.op = Operation::ADD;
-//                i.ex = |i, cpu| {
-//                    let a = cpu.read_byte(i.dest())?;
-//                    let val = cpu.fetch()?;
-//                    let result = a + val;
-//                    cpu.write_byte(i.dest(), result)?;
-//                    if result == 0 {
-//                        cpu.flag_set(Flag::Z);
-//                    }
-//                    cpu.flag_reset(Flag::N);
-//                    if bit::add_overflow(a, val, 3) {
-//                        cpu.flag_set(Flag::HC);
-//                    }
-//                    if bit::add_overflow(a, val, 7) {
-//                        cpu.flag_set(Flag::C);
-//                    }
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            // adc a, imm8
-//            0b1 => {
-//                i.op = Operation::ADC;
-//                i.ex = |i, cpu| {
-//                    let a = cpu.read_byte(i.dest())?;
-//                    let cf = cpu.flag(Flag::C);
-//                    let val = cpu.fetch()?;
-//                    let result = a + val + cf;
-//                    cpu.write_byte(i.dest(), result)?;
-//                    if result == 0 {
-//                        cpu.flag_set(Flag::Z);
-//                    }
-//                    cpu.flag_reset(Flag::N);
-//                    if bit::add_overflow(a, val + cf, 3) {
-//                        cpu.flag_set(Flag::HC);
-//                    }
-//                    if bit::add_overflow(a, val + cf, 7) {
-//                        cpu.flag_set(Flag::C);
-//                    }
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            // sub a, imm8
-//            0b10 => {
-//                i.op = Operation::SUB;
-//                i.ex = |i, cpu| {
-//                    let a = cpu.read_byte(i.dest())?;
-//                    let val = cpu.fetch()?;
-//                    let result = a - val;
-//                    cpu.write_byte(i.dest(), result)?;
-//                    if result == 0 {
-//                        cpu.flag_set(Flag::Z);
-//                    }
-//                    cpu.flag_set(Flag::N);
-//                    if bit::sub_borrow(a, val, 4) {
-//                        cpu.flag_set(Flag::HC);
-//                    }
-//                    if bit::sub_borrow(a, val, 8) {
-//                        cpu.flag_set(Flag::C);
-//                    }
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            // sbc a, imm8
-//            0b11 => {
-//                i.op = Operation::SBC;
-//                i.ex = |i, cpu| {
-//                    let a = cpu.read_byte(i.dest())?;
-//                    let cf = cpu.flag(Flag::C);
-//                    let val = cpu.fetch()?;
-//                    let result = a - (val + cf);
-//                    cpu.write_byte(i.dest(), result)?;
-//                    if result == 0 {
-//                        cpu.flag_set(Flag::Z);
-//                    }
-//                    cpu.flag_set(Flag::N);
-//                    if bit::sub_borrow(a, val, 4) {
-//                        cpu.flag_set(Flag::HC);
-//                    }
-//                    if bit::sub_borrow(a, val + cf, 8) {
-//                        cpu.flag_set(Flag::C);
-//                    }
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            // and a, imm8
-//            0b100 => {
-//                i.op = Operation::AND;
-//                i.ex = |i, cpu| {
-//                    let a = cpu.read_byte(i.dest())?;
-//                    let val = cpu.fetch()?;
-//                    let result = a & val;
-//                    cpu.write_byte(i.dest(), result)?;
-//                    if result == 0 {
-//                        cpu.flag_set(Flag::Z);
-//                    }
-//                    cpu.flag_reset(Flag::N);
-//                    cpu.flag_set(Flag::HC);
-//                    cpu.flag_reset(Flag::C);
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            // xor a, imm8
-//            0b101 => {
-//                i.op = Operation::XOR;
-//                i.ex = |i, cpu| {
-//                    let a = cpu.read_byte(i.dest())?;
-//                    let val = cpu.fetch()?;
-//                    let result = a ^ val;
-//                    cpu.write_byte(i.dest(), result)?;
-//                    if result == 0 {
-//                        cpu.flag_set(Flag::Z);
-//                    }
-//                    cpu.flag_reset(Flag::N);
-//                    cpu.flag_reset(Flag::HC);
-//                    cpu.flag_reset(Flag::C);
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            // or a, imm8
-//            0b110 => {
-//                i.op = Operation::OR;
-//                i.ex = |i, cpu| {
-//                    let a = cpu.read_byte(i.dest())?;
-//                    let val = cpu.fetch()?;
-//                    let result = a | val;
-//                    cpu.write_byte(i.dest(), result)?;
-//                    if result == 0 {
-//                        cpu.flag_set(Flag::Z);
-//                    }
-//                    cpu.flag_reset(Flag::N);
-//                    cpu.flag_reset(Flag::HC);
-//                    cpu.flag_reset(Flag::C);
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            // cp a, imm8
-//            0b111 => {
-//                i.op = Operation::CP;
-//                i.ex = |i, cpu| {
-//                    let a = cpu.read_byte(i.dest())?;
-//                    let val = cpu.fetch()?;
-//                    let result = a - val;
-//                    if result == 0 {
-//                        cpu.flag_set(Flag::Z);
-//                    }
-//                    cpu.flag_set(Flag::N);
-//                    if bit::sub_borrow(a, val, 4) {
-//                        cpu.flag_set(Flag::HC);
-//                    }
-//                    if bit::sub_borrow(a, val, 8) {
-//                        cpu.flag_set(Flag::C);
-//                    }
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            _ => (),
-//        }
-//
-//        match opcode {
-//            // ldh [c], a
-//            0b1110_0010 => {
-//                i.op = Operation::LDH;
-//                i.dest = Some(Operand::C.to_mem());
-//                i.src = Some(Operand::A);
-//                i.length = 1;
-//                i.cycles = 8;
-//                i.ex = |i, cpu| {
-//                    let c = cpu.read_byte(i.dest())? as u16;
-//                    let addr = c + 0xFF00;
-//                    let a = cpu.read_byte(i.src())?;
-//                    let mu = cpu.mem();
-//                    let mut mem = mu.lock().unwrap();
-//                    mem.write(addr, a)?;
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // ldh [imm8], a
-//            0b1110_0000 => {
-//                i.op = Operation::LD;
-//                i.dest = Some(Operand::Imm8.to_mem());
-//                i.src = Some(Operand::A);
-//                i.length = 2;
-//                i.cycles = 12;
-//                i.ex = |i, cpu| {
-//                    let imm8 = cpu.fetch()? as u16;
-//                    let addr = imm8 + 0xFF00;
-//                    let a = cpu.read_byte(i.src())?;
-//                    let mu = cpu.mem();
-//                    let mut mem = mu.lock().unwrap();
-//                    mem.write(addr, a)?;
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // ld [imm16], a
-//            0b1110_1010 => {
-//                i.op = Operation::LD;
-//                i.dest = Some(Operand::Imm16.to_mem());
-//                i.src = Some(Operand::A);
-//                i.length = 3;
-//                i.cycles = 16;
-//                i.ex = |i, cpu| {
-//                    let imm16 = cpu.fetch_word()?;
-//                    let a = cpu.read_byte(i.src())?;
-//                    let mu = cpu.mem();
-//                    let mut mem = mu.lock().unwrap();
-//                    mem.write(imm16, a)?;
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // ldh a, [c]
-//            0b1111_0010 => {
-//                i.op = Operation::LDH;
-//                i.dest = Some(Operand::A);
-//                i.src = Some(Operand::C.to_mem());
-//                i.length = 1;
-//                i.cycles = 8;
-//                i.ex = |i, cpu| {
-//                    let c = cpu.read_byte(i.dest())? as u16;
-//                    let addr = c + 0xFF00;
-//                    let mu = cpu.mem();
-//                    let mem = mu.lock().unwrap();
-//                    let val = mem.read(addr)?;
-//                    cpu.write_byte(i.dest(), val)?;
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // ldh a, [imm8]
-//            0b1111_0000 => {
-//                i.op = Operation::LDH;
-//                i.dest = Some(Operand::A);
-//                i.src = Some(Operand::Imm8.to_mem());
-//                i.length = 2;
-//                i.cycles = 12;
-//                i.ex = |i, cpu| {
-//                    let imm8 = cpu.fetch()? as u16;
-//                    let addr = imm8 + 0xFF00;
-//                    let mu = cpu.mem();
-//                    let mem = mu.lock().unwrap();
-//                    let val = mem.read(addr)?;
-//                    cpu.write_byte(i.dest(), val)?;
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // ld a, [imm16]
-//            0b1111_1010 => {
-//                i.op = Operation::LD;
-//                i.dest = Some(Operand::A);
-//                i.src = Some(Operand::Imm16.to_mem());
-//                i.length = 3;
-//                i.cycles = 16;
-//                i.ex = |i, cpu| {
-//                    let imm16 = cpu.fetch_word()?;
-//                    let mu = cpu.mem();
-//                    let mem = mu.lock().unwrap();
-//                    let val = mem.read(imm16)?;
-//                    cpu.write_byte(i.dest(), val)?;
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // add sp, imm8
-//            0b1110_1000 => {
-//                i.op = Operation::ADD;
-//                i.dest = Some(R16::SP.to_operand());
-//                i.src = Some(Operand::Imm8);
-//                i.length = 2;
-//                i.cycles = 16;
-//                i.ex = |i, cpu| {
-//                    let sp = cpu.read(i.dest())?;
-//                    let imm8 = cpu.fetch()? as u16;
-//                    let result = sp + imm8;
-//                    cpu.write(i.dest(), result)?;
-//                    cpu.flag_reset(Flag::Z);
-//                    cpu.flag_reset(Flag::N);
-//                    if bit::add_overflow_u16(sp, imm8, 3) {
-//                        cpu.flag_set(Flag::HC);
-//                    }
-//                    if bit::add_overflow_u16(sp, imm8, 7) {
-//                        cpu.flag_set(Flag::C);
-//                    }
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // ld hl, sp + imm8
-//            0b1111_1000 => {
-//                i.op = Operation::LD;
-//                i.dest = Some(R16::HL.to_operand());
-//                let sp = Box::new(R16::SP.to_operand());
-//                let imm8 = Box::new(Operand::Imm8);
-//                i.src = Some(Operand::Sum((sp, imm8)));
-//                i.length = 2;
-//                i.cycles = 12;
-//                i.ex = |i, cpu| {
-//                    let sp = cpu.read(i.dest())?;
-//                    let imm8 = cpu.fetch()? as u16;
-//                    let result = sp + imm8;
-//                    cpu.write(Some(Operand::HL), result)?;
-//
-//                    cpu.flag_reset(Flag::Z);
-//                    cpu.flag_reset(Flag::N);
-//                    if bit::add_overflow_u16(sp, imm8, 3) {
-//                        cpu.flag_set(Flag::HC);
-//                    }
-//                    if bit::add_overflow_u16(sp, imm8, 7) {
-//                        cpu.flag_set(Flag::C);
-//                    }
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // ld sp, hl
-//            0b1111_1001 => {
-//                i.op = Operation::LD;
-//                i.dest = Some(R16::SP.to_operand());
-//                i.src = Some(R16::HL.to_operand());
-//                i.length = 1;
-//                i.cycles = 8;
-//                i.ex = |i, cpu| {
-//                    let hl = cpu.read(i.src())?;
-//                    cpu.write(i.dest(), hl)?;
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // di
-//            0b1111_0011 => {
-//                i.op = Operation::DI;
-//                i.length = 1;
-//                i.cycles = 4;
-//                i.ex = |_, cpu| {
-//                    cpu.disable_interrupts();
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // ei
-//            0b1111_1011 => {
-//                i.op = Operation::EI;
-//                i.length = 1;
-//                i.cycles = 4;
-//                i.ex = |_, cpu| {
-//                    cpu.enable_interrupts();
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // ret
-//            0b1100_1001 => {
-//                i.op = Operation::RET;
-//                i.length = 1;
-//                i.cycles = 16;
-//                i.ex = |_, cpu| {
-//                    let sp = cpu.pop_stack()?;
-//                    cpu.set_pc(sp);
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            // reti
-//            0b1101_1001 => {
-//                i.op = Operation::RET;
-//                i.length = 1;
-//                i.cycles = 16;
-//                i.ex = |_, cpu| {
-//                    let sp_val = cpu.pop_stack()?;
-//                    cpu.set_pc(sp_val);
-//                    cpu.enable_interrupts();
-//                    Ok(())
-//                };
-//            }
-//
-//            // jp imm16
-//            0b1100_0011 => {
-//                i.op = Operation::JP;
-//                i.dest = Some(Operand::Imm16);
-//                i.length = 3;
-//                i.cycles = 16;
-//                i.ex = |_, cpu| {
-//                    let imm16 = cpu.fetch_word()?;
-//                    cpu.set_pc(imm16);
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            // jp hl
-//            0b1110_1001 => {
-//                i.op = Operation::JP;
-//                i.dest = Some(Operand::HL);
-//                i.length = 3;
-//                i.cycles = 16;
-//                i.ex = |i, cpu| {
-//                    let hl = cpu.read(i.dest())?;
-//                    cpu.set_pc(hl);
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//
-//            // call imm16
-//            0b1100_1101 => {
-//                i.op = Operation::CALL;
-//                i.dest = Some(Operand::Imm16);
-//                i.length = 3;
-//                i.cycles = 24;
-//                i.ex = |_, cpu| {
-//                    let imm16 = cpu.fetch_word()?;
-//                    let pc = cpu.get_pc();
-//                    cpu.push_stack(pc)?;
-//                    cpu.set_pc(imm16);
-//                    Ok(())
-//                };
-//                return Ok(i);
-//            }
-//            _ => (),
-//        }
-//    }
-//
-//    let last_three = opcode & 0b111;
-//    match last_three {
-//        // ret cond
-//        0b000 => {
-//            i.op = Operation::RET;
-//            let c = Cond::from_u8((opcode & 0b0001_1000) >> 3)?;
-//            i.dest = Some(c.to_operand());
-//            i.length = 1;
-//            i.cycles = 8;
-//            i.branch_cycles = 20;
-//            i.ex = |i, cpu| {
-//                if cpu.cc(i.dest())? {
-//                    let sp = cpu.read(Some(Operand::SP))?;
-//                    cpu.set_pc(sp);
-//                    let sp = sp + 2;
-//                    cpu.write(Some(Operand::SP), sp)?;
-//                }
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // jp cond, imm16
-//        0b010 => {
-//            i.op = Operation::JP;
-//            let c = Cond::from_u8((opcode & 0b0001_1000) >> 3)?;
-//            i.dest = Some(c.to_operand());
-//            i.src = Some(Operand::Imm16);
-//            i.length = 3;
-//            i.cycles = 12;
-//            i.branch_cycles = 16;
-//            i.ex = |i, cpu| {
-//                if cpu.cc(i.dest())? {
-//                    let imm16 = cpu.fetch_word()?;
-//                    cpu.set_pc(imm16);
-//                }
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // call cond, imm16
-//        0b100 => {
-//            i.op = Operation::CALL;
-//            let c = Cond::from_u8((opcode & 0b0001_1000) >> 3)?;
-//            i.dest = Some(c.to_operand());
-//            i.src = Some(Operand::Imm16);
-//            i.length = 3;
-//            i.cycles = 12;
-//            i.branch_cycles = 24;
-//            i.ex = |i, cpu| {
-//                if cpu.cc(i.dest())? {
-//                    let imm16 = cpu.fetch_word()?;
-//                    let pc = cpu.get_pc();
-//                    cpu.push_stack(pc)?;
-//                    cpu.set_pc(imm16);
-//                }
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // rst tgt3
-//        0b111 => {
-//            i.op = Operation::RST;
-//            let t = Tgt3::new((opcode & 0b0011_1000) >> 3);
-//            i.dest = Some(Operand::Tgt3(t));
-//            i.length = 1;
-//            i.cycles = 16;
-//            i.ex = |i, cpu| {
-//                let t: Tgt3 = i.dest().into();
-//                let t = t.addr();
-//                let pc = cpu.get_pc();
-//                cpu.push_stack(pc)?;
-//                cpu.set_pc(t as u16);
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        _ => (),
-//    }
-//
-//    let last_four = opcode & 0b1111;
-//    match last_four {
-//        // pop r16stk
-//        0b0001 => {
-//            i.op = Operation::POP;
-//            let r = R16Stk::from_u8((opcode & 0b0011_0000) >> 4)?;
-//            i.dest = Some(r.to_operand());
-//            i.length = 1;
-//            i.cycles = 12;
-//            i.ex = |i, cpu| {
-//                let sp_val = cpu.pop_stack()?;
-//                cpu.write(i.dest(), sp_val)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // push r16stk
-//        0b0101 => {
-//            i.op = Operation::PUSH;
-//            let r = R16Stk::from_u8((opcode & 0b0011_0000) >> 4)?;
-//            i.dest = Some(r.to_operand());
-//            i.length = 1;
-//            i.cycles = 16;
-//            i.ex = |i, cpu| {
-//                let r16_val = cpu.read(i.dest())?;
-//                cpu.push_stack(r16_val)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        _ => (),
-//    }
-//
-//    Err(InstructionError::Unknown)
-//}
+
+const INVALID_OPCODES: [u8; 11] = [
+    0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
+];
+
+fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
+    if INVALID_OPCODES.contains(&opcode) {
+        return Err(Error::Unknown);
+    }
+
+    let mut i = Instruction::new();
+    // Prefix
+    if opcode == 0b1100_1011 {
+        i.op = Operation::PREFIX;
+        i.length = 1;
+        i.cycles = (4, 0);
+        return Ok(i);
+    }
+
+    if (opcode & 0b111) == 0b110 {
+        i.length = 2;
+        i.cycles = (8, 0);
+
+        match (opcode & 0b0011_1000) >> 3 {
+            // add a, imm8
+            0 => {
+                i.op = ADD::A(R8::N8).into();
+                return Ok(i);
+            }
+            // adc a, imm8
+            0b1 => {
+                i.op = Operation::ADC(R8::N8);
+                return Ok(i);
+            }
+            // sub a, imm8
+            0b10 => {
+                i.op = Operation::SUB(R8::N8);
+                return Ok(i);
+            }
+            // sbc a, imm8
+            0b11 => {
+                i.op = Operation::SBC(R8::N8);
+                return Ok(i);
+            }
+            // and a, imm8
+            0b100 => {
+                i.op = Operation::AND(R8::N8);
+                return Ok(i);
+            }
+            // xor a, imm8
+            0b101 => {
+                i.op = Operation::XOR(R8::N8);
+                return Ok(i);
+            }
+            // or a, imm8
+            0b110 => {
+                i.op = Operation::OR(R8::N8);
+                return Ok(i);
+            }
+            // cp a, imm8
+            0b111 => {
+                i.op = Operation::CP(R8::N8);
+                return Ok(i);
+            }
+            _ => (),
+        }
+
+        match opcode {
+            // ldh [c], a
+            0b1110_0010 => {
+                i.op = LDH::Mem(Mem::C).into();
+                i.length = 1;
+                i.cycles = (8, 0);
+                return Ok(i);
+            }
+
+            // ldh [imm8], a
+            0b1110_0000 => {
+                i.op = LDH::Mem(Mem::N8).into();
+                i.length = 2;
+                i.cycles = (12, 0);
+                return Ok(i);
+            }
+
+            // ld [imm16], a
+            0b1110_1010 => {
+                i.op = LD::MemR8(Mem::N16, R8::A).into();
+                i.length = 3;
+                i.cycles = (16, 0);
+                return Ok(i);
+            }
+
+            // ldh a, [c]
+            0b1111_0010 => {
+                i.op = LDH::A(Mem::C).into();
+                i.length = 1;
+                i.cycles = (8, 0);
+                return Ok(i);
+            }
+
+            // ldh a, [imm8]
+            0b1111_0000 => {
+                i.op = LDH::A(Mem::N8).into();
+                i.length = 2;
+                i.cycles = (12, 0);
+                return Ok(i);
+            }
+
+            // ld a, [imm16]
+            0b1111_1010 => {
+                i.op = LD::R8Mem(R8::A, Mem::N16).into();
+                i.length = 3;
+                i.cycles = (16, 0);
+                return Ok(i);
+            }
+
+            // add sp, imm8
+            0b1110_1000 => {
+                i.op = ADD::SP.into();
+                i.length = 2;
+                i.cycles = (16, 0);
+                return Ok(i);
+            }
+
+            // ld hl, sp + e8
+            0b1111_1000 => {
+                i.op = LD::HLSPN.into();
+                i.length = 2;
+                i.cycles = (12, 0);
+                return Ok(i);
+            }
+
+            // ld sp, hl
+            0b1111_1001 => {
+                i.op = LD::R16(R16::SP, R16::HL).into();
+                i.length = 1;
+                i.cycles = (8, 0);
+                return Ok(i);
+            }
+
+            // di
+            0b1111_0011 => {
+                i.op = Operation::DI;
+                i.length = 1;
+                i.cycles = (4, 0);
+                return Ok(i);
+            }
+
+            // ei
+            0b1111_1011 => {
+                i.op = Operation::EI;
+                i.length = 1;
+                i.cycles = (4, 0);
+                return Ok(i);
+            }
+
+            // ret
+            0b1100_1001 => {
+                i.op = Operation::RET;
+                i.length = 1;
+                i.cycles = (16, 0);
+                return Ok(i);
+            }
+            // reti
+            0b1101_1001 => {
+                i.op = Operation::RET;
+                i.length = 1;
+                i.cycles = (16, 0);
+                return Ok(i);
+            }
+
+            // jp n16
+            0b1100_0011 => {
+                i.op = Operation::JP(R16::N16);
+                i.length = 3;
+                i.cycles = (16, 0);
+                return Ok(i);
+            }
+            // jp hl
+            0b1110_1001 => {
+                i.op = Operation::JP(R16::HL);
+                i.length = 3;
+                i.cycles = (16, 0);
+                return Ok(i);
+            }
+
+            // call imm16
+            0b1100_1101 => {
+                i.op = Operation::CALL;
+                i.length = 3;
+                i.cycles = (24, 0);
+                return Ok(i);
+            }
+            _ => (),
+        }
+    }
+
+    let last_three = opcode & 0b111;
+    match last_three {
+        // ret cond
+        0b000 => {
+            let c: Cond = ((opcode & 0b0001_1000) >> 3).try_into()?;
+            i.op = Operation::RETC(c);
+            i.length = 1;
+            i.cycles = (8, 20);
+            return Ok(i);
+        }
+        // jp cond, imm16
+        0b010 => {
+            let c: Cond = ((opcode & 0b0001_1000) >> 3).try_into()?;
+            i.op = Operation::JPC(c, R16::N16);
+            i.length = 3;
+            i.cycles = (12, 16);
+            return Ok(i);
+        }
+        // call cond, imm16
+        0b100 => {
+            let c: Cond = ((opcode & 0b0001_1000) >> 3).try_into()?;
+            i.op = Operation::CALLC(c);
+            i.length = 3;
+            i.cycles = (12, 24);
+            return Ok(i);
+        }
+        // rst tgt3
+        0b111 => {
+            let t: T3 = ((opcode & 0b0011_1000) >> 3).into();
+            i.op = Operation::RST(t);
+            i.length = 1;
+            i.cycles = (16, 0);
+            return Ok(i);
+        }
+        _ => (),
+    }
+
+    let last_four = opcode & 0b1111;
+    match last_four {
+        // pop r16stk
+        0b0001 => {
+            let r = R16::r16stk((opcode & 0b0011_0000) >> 4)?;
+            i.op = Operation::POP(r);
+            i.length = 1;
+            i.cycles = (12, 0);
+            return Ok(i);
+        }
+        // push r16stk
+        0b0101 => {
+            let r = R16::r16stk((opcode & 0b0011_0000) >> 4)?;
+            i.op = Operation::PUSH(r);
+            i.length = 1;
+            i.cycles = (16, 0);
+            return Ok(i);
+        }
+        _ => (),
+    }
+
+    Err(Error::Unknown)
+}
 //
 //fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
 //    let mut i = Instruction::new();
