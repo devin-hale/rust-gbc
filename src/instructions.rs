@@ -365,17 +365,17 @@ pub enum Operation {
     LDH(LDH),
     DI,
     EI,
-    RR,
-    RLC,
-    RRC,
-    RL,
-    SLA,
-    SRA,
-    SWAP,
-    SRL,
-    BIT,
-    RES,
-    SET,
+    RR(R8),
+    RLC(R8),
+    RRC(R8),
+    RL(R8),
+    SLA(R8),
+    SRA(R8),
+    SWAP(R8),
+    SRL(R8),
+    BIT(B3, R8),
+    RES(B3, R8),
+    SET(B3, R8),
     PREFIX,
 }
 
@@ -418,17 +418,17 @@ impl Display for Operation {
             Operation::LDH(ldh) => ldh.to_string(),
             Operation::DI => String::from("di"),
             Operation::EI => String::from("ei"),
-            //Operation::RR => "rr",
-            //Operation::RLC => "rlc",
-            //Operation::RRC => "rrc",
-            //Operation::RL => "rl",
-            //Operation::SLA => "sla",
-            //Operation::SRA => "sra",
-            //Operation::SWAP => "swap",
-            //Operation::SRL => "srl",
-            //Operation::BIT => "bit",
-            //Operation::RES => "res",
-            //Operation::SET => "set",
+            Operation::RR(r) => format!("rr {}", r),
+            Operation::RLC(r) => format!("rlc {}", r),
+            Operation::RRC(r) => format!("rrc {}", r),
+            Operation::RL(r) => format!("rr {}", r),
+            Operation::SLA(r) => format!("sla {}", r),
+            Operation::SRA(r) => format!("sra {}", r),
+            Operation::SWAP(r) => format!("swap {}", r),
+            Operation::SRL(r) => format!("srl {}", r),
+            Operation::BIT(b, r) => format!("bit {}, {}", b, r),
+            Operation::RES(b, r) => format!("res {}, {}", b, r),
+            Operation::SET(b, r) => format!("set {}, {}", b, r),
             //Operation::PREFIX => "cb prefix",
             _ => String::from(""),
         };
@@ -1136,302 +1136,153 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
     Err(Error::Unknown)
 }
 //
-//fn decode_prefix(opcode: u8) -> Result<Instruction, InstructionError> {
-//    let mut i = Instruction::new();
-//
-//    let first_five = (opcode & 0b1111_1000) >> 3;
-//    match first_five {
-//        // rlc r8
-//        0b000 => {
-//            i.op = Operation::RLC;
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let r = cpu.read_byte(i.dest())?;
-//                let r7 = bit::get(r, 7);
-//                cpu.flag_set_val(Flag::C, r7);
-//                let r = (r << 1) + r7;
-//                if r == 0 {
-//                    cpu.flag_reset(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.write_byte(i.dest(), r)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // rrc r8
-//        0b001 => {
-//            i.op = Operation::RRC;
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let r = cpu.read_byte(i.dest())?;
-//                let r0 = bit::get(r, 0);
-//                cpu.flag_set_val(Flag::C, r0);
-//                let r = (r >> 1) + (r0 << 7);
-//                if r == 0 {
-//                    cpu.flag_reset(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.write_byte(i.dest(), r)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // rl r8
-//        0b010 => {
-//            i.op = Operation::RL;
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let r = cpu.read_byte(i.dest())?;
-//                let cf = cpu.flag(Flag::C);
-//                let r7 = bit::get(r, 7);
-//                cpu.flag_set_val(Flag::C, r7);
-//                let r = (r << 1) + cf;
-//                if r == 0 {
-//                    cpu.flag_reset(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.write_byte(i.dest(), r)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // rr r8
-//        0b011 => {
-//            i.op = Operation::RR;
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let r = cpu.read_byte(i.dest())?;
-//                let cf = cpu.flag(Flag::C);
-//                let r0 = bit::get(r, 0);
-//                cpu.flag_set_val(Flag::C, r0);
-//                let r = (r >> 1) + (cf << 7);
-//                if r == 0 {
-//                    cpu.flag_reset(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.write_byte(i.dest(), r)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // sla r8
-//        0b100 => {
-//            i.op = Operation::SLA;
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let r = cpu.read_byte(i.dest())?;
-//                let r7 = bit::get(r, 7);
-//                cpu.flag_set_val(Flag::C, r7);
-//                let r = r << 1;
-//                if r == 0 {
-//                    cpu.flag_reset(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.write_byte(i.dest(), r)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // sra r8
-//        0b101 => {
-//            i.op = Operation::SRA;
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let r = cpu.read_byte(i.dest())?;
-//                let r0 = bit::get(r, 0);
-//                let r7 = bit::get(r, 7) << 7;
-//                cpu.flag_set_val(Flag::C, r0);
-//                let r = r >> 1 | r7;
-//                if r == 0 {
-//                    cpu.flag_reset(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.write_byte(i.dest(), r)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // swap r8
-//        0b110 => {
-//            i.op = Operation::RL;
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let r = cpu.read_byte(i.dest())?;
-//                let l = (r & 0b1111) << 4;
-//                let h = (r & 0b1111_0000) >> 4;
-//                let r = l | h;
-//                cpu.write_byte(i.dest(), r)?;
-//                if r == 0 {
-//                    cpu.flag_reset(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.flag_reset(Flag::C);
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // srl r8
-//        0b111 => {
-//            i.op = Operation::SRL;
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let r = cpu.read_byte(i.dest())?;
-//                let r0 = bit::get(r, 0);
-//                cpu.flag_set_val(Flag::C, r0);
-//                let r = r >> 1;
-//                if r == 0 {
-//                    cpu.flag_reset(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.write_byte(i.dest(), r)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        _ => (),
-//    }
-//
-//    let last_two = (opcode & 0b1100_0000) >> 6;
-//    match last_two {
-//        // bit b3, r8
-//        0b01 => {
-//            i.op = Operation::BIT;
-//            let b3 = BitIndex::new((opcode & 0b11_1000) >> 3);
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(b3.to_operand());
-//            i.src = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let r = cpu.read_byte(i.src())?;
-//                let b3: BitIndex = i.dest().into();
-//                let b3 = b3.index();
-//                if bit::is_set(r, b3) {
-//                    cpu.flag_set(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_set(Flag::HC);
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // res b3, r8
-//        0b10 => {
-//            i.op = Operation::BIT;
-//            let b3 = BitIndex::new((opcode & 0b11_1000) >> 3);
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(b3.to_operand());
-//            i.src = Some(b3.to_operand());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let mut r = cpu.read_byte(i.src())?;
-//                let b3: BitIndex = i.dest().into();
-//                let b3 = b3.index();
-//                bit::reset(&mut r, b3);
-//                cpu.write_byte(i.src(), r)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // set b3, r8
-//        0b11 => {
-//            i.op = Operation::BIT;
-//            let b3 = BitIndex::new((opcode & 0b11_1000) >> 3);
-//            let r = R8::from_u8(opcode & 0b111)?;
-//            i.dest = Some(b3.to_operand());
-//            i.src = Some(r.into());
-//            i.length = 2;
-//            if r == R8::HlMem {
-//                i.cycles = 16;
-//            } else {
-//                i.cycles = 8;
-//            }
-//            i.ex = |i, cpu| {
-//                let mut r = cpu.read_byte(i.src())?;
-//                let b3: BitIndex = i.dest().into();
-//                let b3 = b3.index();
-//                bit::set(&mut r, b3);
-//                cpu.write_byte(i.src(), r)?;
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        _ => (),
-//    }
-//
-//    Err(InstructionError::Unknown)
-//}
+fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
+    let mut i = Instruction::new();
+
+    let first_five = (opcode & 0b1111_1000) >> 3;
+    match first_five {
+        // rlc r8
+        0b000 => {
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::RLC(r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        // rrc r8
+        0b001 => {
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::RRC(r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        // rl r8
+        0b010 => {
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::RL(r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        // rr r8
+        0b011 => {
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::RR(r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        // sla r8
+        0b100 => {
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::SLA(r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        // sra r8
+        0b101 => {
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::SRA(r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        // swap r8
+        0b110 => {
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::SWAP(r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        // srl r8
+        0b111 => {
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::SRL(r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        _ => (),
+    }
+    //
+    let last_two = (opcode & 0b1100_0000) >> 6;
+    match last_two {
+        // bit b3, r8
+        0b01 => {
+            let b3: B3 = ((opcode & 0b11_1000) >> 3).into();
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::BIT(b3, r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        // res b3, r8
+        0b10 => {
+            let b: B3 = ((opcode & 0b11_1000) >> 3).into();
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::RES(b, r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        // set b3, r8
+        0b11 => {
+            let b: B3 = ((opcode & 0b11_1000) >> 3).into();
+            let r: R8 = (opcode & 0b111).try_into()?;
+            i.op = Operation::SET(b, r);
+            i.length = 2;
+            if r == R8::HL {
+                i.cycles = (16, 0);
+            } else {
+                i.cycles = (8, 0);
+            }
+            return Ok(i);
+        }
+        _ => (),
+    }
+    //
+    Err(Error::Unknown)
+}

@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::{
     bit,
-    instructions::{self, ADD, Cond, INC, LD, Mem, R8, R16, T3},
+    instructions::{self, ADD, B3, Cond, INC, LD, Mem, R8, R16, T3},
     memory::Memory,
 };
 
@@ -881,6 +881,87 @@ impl CPU {
     fn reti(&mut self) {
         self.ei();
         self.ret();
+    }
+
+    fn sla(&mut self, r: R8) {
+        let v = self.src_r8(r);
+        let v7 = bit::get(v, 7);
+        self.set_flag_from_val(Flag::C, v7);
+        let v = v << 1;
+        if v == 0 {
+            self.reset_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+        self.ld_r8(r, v);
+    }
+
+    fn sra(&mut self, r: R8) {
+        let v = self.src_r8(r);
+        let v0 = bit::get(v, 0);
+        let v7 = bit::get(v, 7) << 7;
+
+        self.set_flag_from_val(Flag::C, v0);
+        let v = v >> 1 | v7;
+        if v == 0 {
+            self.reset_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+        self.ld_r8(r, v);
+    }
+
+    fn swap(&mut self, r: R8) {
+        let v = self.src_r8(r);
+        let l = (v & 0b1111) << 4;
+        let h = (v & 0b1111_0000) >> 4;
+        let v = l | h;
+        self.ld_r8(r, v);
+        if v == 0 {
+            self.reset_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+        self.reset_flag(Flag::C);
+    }
+
+    fn srl(&mut self, r: R8) {
+        let v = self.src_r8(r);
+        let v0 = bit::get(v, 0);
+        self.set_flag_from_val(Flag::C, v0);
+        let v = v >> 1;
+
+        if v == 0 {
+            self.reset_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+        self.ld_r8(r, v);
+    }
+
+    fn bit(&mut self, b: B3, r: R8) {
+        let val = self.src_r8(r);
+        let i = b.val();
+
+        if bit::is_set(val, i) {
+            self.set_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+        self.set_flag(Flag::H);
+    }
+
+    fn res(&mut self, b: B3, r: R8) {
+        let mut val = self.src_r8(r);
+        let i = b.val();
+        bit::reset(&mut val, i);
+        self.ld_r8(r, val);
+    }
+
+    fn set(&mut self, b: B3, r: R8) {
+        let mut val = self.src_r8(r);
+        let i = b.val();
+        bit::set(&mut val, i);
+        self.ld_r8(r, val);
     }
 }
 
