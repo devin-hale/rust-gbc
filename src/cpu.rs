@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::{
     bit,
-    instructions::{Cond, LD, Mem, R8, R16},
+    instructions::{ADD, Cond, INC, LD, Mem, R8, R16},
     memory::Memory,
 };
 
@@ -245,6 +245,12 @@ impl CPU {
         self.pc += b as u16;
     }
 
+    fn jr_cond(&mut self, c: Cond, b: u8) {
+        if self.cc(c) {
+            self.jr(b);
+        }
+    }
+
     fn jr_word(&mut self, w: u16) {
         self.pc += w;
     }
@@ -378,58 +384,80 @@ impl CPU {
         }
     }
 
-    fn inc_r8(&mut self, r: R8) -> u8 {
-        match r {
+    fn inc(&mut self, i: INC) {
+        match i {
+            INC::R8(r) => self.inc_r8(r),
+            INC::R16(r) => self.inc_r16(r),
+        }
+    }
+
+    fn inc_r8(&mut self, r: R8) {
+        let val = self.src_r8(r);
+        let result = match r {
             R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).inc(),
             R8::HL => {
                 let addr = self.hl().val();
                 self.mem().inc(addr)
             }
             _ => panic!("attempt to increment {}", r),
+        };
+        if result == 0 {
+            self.zf = false;
+        }
+        self.nf = false;
+        if bit::check_overflow(val, 1, 3) {
+            self.hf = true;
         }
     }
 
-    fn inc_r16(&mut self, r: R16) -> u16 {
+    fn inc_r16(&mut self, r: R16) {
         match r {
-            R16::DE => self.de().inc(),
-            R16::BC => self.bc().inc(),
-            R16::HL => self.hl().inc(),
+            R16::DE => {
+                self.de().inc();
+            }
+            R16::BC => {
+                self.bc().inc();
+            }
+            R16::HL => {
+                self.hl().inc();
+            }
             R16::SP => {
                 self.sp += 1;
-                return self.sp;
             }
             R16::PC => {
                 self.pc += 1;
-                return self.pc;
             }
             _ => panic!("attempt to increment {}", r),
         }
     }
 
-    fn dec_r8(&mut self, r: R8) -> u8 {
-        match r {
+    fn dec_r8(&mut self, r: R8) {
+        let val = self.src_r8(r);
+        let result = match r {
             R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).dec(),
             R8::HL => {
                 let addr = self.hl().val();
                 self.mem().dec(addr)
             }
             _ => panic!("attempt to increment {}", r),
+        };
+
+        if result == 0 {
+            self.zf = true;
         }
+        if bit::check_borrow(val, 1, 4) {
+            self.hf = true;
+        }
+        self.nf = true;
     }
 
-    fn dec_r16(&mut self, r: R16) -> u16 {
+    fn dec_r16(&mut self, r: R16) {
         match r {
-            R16::DE => self.de().dec(),
-            R16::BC => self.bc().dec(),
-            R16::HL => self.hl().dec(),
-            R16::SP => {
-                self.sp += 1;
-                return self.sp;
+            R16::DE | R16::BC | R16::HL => {
+                self.reg_word(r).dec();
             }
-            R16::PC => {
-                self.pc += 1;
-                return self.pc;
-            }
+            R16::SP => self.sp += 1,
+            R16::PC => self.pc += 1,
             _ => panic!("attempt to decrement {}", r),
         }
     }
@@ -448,45 +476,74 @@ impl CPU {
         }
     }
 
-    fn rlc_r8(&mut self, r: R8) -> u8 {
+    fn reg_word<'a>(&'a mut self, r: R16) -> Word<'a> {
+        match r {
+            R16::DE => self.de(),
+            R16::BC => self.bc(),
+            R16::HL => self.hl(),
+            _ => panic!("attempt to return {} as a 16 bit register", r),
+        }
+    }
+
+    fn rlc(&mut self, r: R8) {
         let val = self.reg(r).val();
         let b7 = bit::get(val, 7);
         self.set_flag_from_val(Flag::C, b7);
-        let val = (val << 1) + b7;
-        self.reg(r).write(val);
-        val
+        let result = (val << 1) + b7;
+        self.reg(r).write(result);
+
+        if r == R8::A || result == 0 {
+            self.zf = false;
+        }
+        self.nf = false;
+        self.hf = false;
     }
 
-    fn rrc_r8(&mut self, r: R8) -> u8 {
+    fn rrc(&mut self, r: R8) {
         let val = self.reg(r).val();
         let b0 = bit::get(val, 0);
         self.set_flag_from_val(Flag::C, b0);
-        let val = (val >> 1) + (b0 << 7);
-        self.reg(r).write(val);
-        val
+        let result = (val >> 1) + (b0 << 7);
+        self.reg(r).write(result);
+
+        if r == R8::A || result == 0 {
+            self.zf = false;
+        }
+        self.nf = false;
+        self.hf = false;
     }
 
-    fn rl_r8(&mut self, r: R8) -> u8 {
+    fn rl(&mut self, r: R8) {
         let val = self.reg(r).val();
         let cf = self.cf as u8;
         let b7 = bit::get(val, 7);
         self.set_flag_from_val(Flag::C, b7);
-        let val = (val << 1) + cf;
-        self.reg(r).write(val);
-        val
+        let result = (val << 1) + cf;
+        self.reg(r).write(result);
+
+        if r == R8::A || result == 0 {
+            self.zf = false;
+        }
+        self.nf = false;
+        self.hf = false;
     }
 
-    fn rr_r8(&mut self, r: R8) -> u8 {
+    fn rr(&mut self, r: R8) {
         let val = self.reg(r).val();
         let cf = self.cf as u8;
         let b0 = bit::get(val, 0);
         self.set_flag_from_val(Flag::C, b0);
-        let val = (val >> 1) + (cf << 7);
-        self.reg(r).write(val);
-        val
+        let result = (val >> 1) + (cf << 7);
+        self.reg(r).write(result);
+
+        if r == R8::A || result == 0 {
+            self.zf = false;
+        }
+        self.nf = false;
+        self.hf = false;
     }
 
-    fn daa(&mut self) -> u8 {
+    fn daa(&mut self) {
         let a = self.a.val();
         if self.flag(Flag::N) {
             let mut adj = 0;
@@ -498,7 +555,11 @@ impl CPU {
             }
             let result = a - adj;
             self.a.write(result);
-            return result;
+
+            self.hf = false;
+            if result == 0 {
+                self.zf = false;
+            }
         } else {
             let mut adj = 0;
             if self.flag(Flag::H) || (a & 0xF) > 0x9 {
@@ -510,14 +571,190 @@ impl CPU {
             }
             let result = a + adj;
             self.a.write(result);
-            return result;
+
+            self.hf = false;
+            if result == 0 {
+                self.zf = false;
+            }
         }
     }
 
-    fn cpl(&mut self) -> u8 {
+    fn cpl(&mut self) {
         let v = !self.a.val();
         self.a.write(v);
-        v
+        self.nf = true;
+        self.hf = true;
+    }
+
+    fn scf(&mut self) {
+        self.nf = false;
+        self.hf = false;
+        self.cf = true;
+    }
+
+    fn ccf(&mut self) {
+        self.nf = false;
+        self.hf = false;
+        self.invert_flag(Flag::C);
+    }
+
+    // ADD
+
+    fn add(&mut self, add: ADD) {
+        match add {
+            ADD::A(r) => self.add_r8(r),
+            ADD::HL(r) => self.add_r16(r),
+            _ => {}
+        }
+    }
+
+    fn add_r8(&mut self, r: R8) {
+        let a = self.a.val();
+        let val = self.src_r8(r);
+        let result = a + val;
+        self.a.write(result);
+
+        if result == 0 {
+            self.zf = true;
+        }
+        self.nf = false;
+        if bit::check_overflow(a, val, 3) {
+            self.hf = true;
+        }
+        if bit::check_overflow(a, val, 7) {
+            self.cf = true;
+        }
+    }
+
+    fn add_r16(&mut self, r: R16) {
+        let hl = self.hl().val();
+        let val = self.src_r16(r);
+        let result = hl + val;
+        self.hl().write(result);
+
+        self.nf = false;
+        if bit::check_overflow_word(hl, val, 11) {
+            self.hf = true;
+        }
+        if bit::check_overflow_word(hl, val, 15) {
+            self.cf = true;
+        }
+    }
+
+    // ADC
+    fn adc(&mut self, b: R8) {
+        let a = self.a.val();
+        let cf = self.cf as u8;
+        let val = self.src_r8(b);
+
+        let result = a + val + cf;
+        self.a.write(result);
+        if result == 0 {
+            self.zf = true;
+        }
+        self.nf = false;
+        if bit::check_overflow(a, val + cf, 3) {
+            self.hf = true;
+        }
+        if bit::check_overflow(a, val + cf, 7) {
+            self.cf = true;
+        }
+    }
+
+    fn sub(&mut self, r: R8) {
+        let a = self.a.val();
+        let val = self.src_r8(r);
+        let result = a - val;
+        self.reg(r).write(result);
+
+        if result == 0 {
+            self.zf = true;
+        }
+        self.nf = true;
+        if bit::check_borrow(a, val, 4) {
+            self.hf = true;
+        }
+        if bit::check_borrow(a, val, 8) {
+            self.cf = true;
+        }
+    }
+
+    fn sbc(&mut self, r: R8) {
+        let a = self.a.val();
+        let cf = self.cf as u8;
+        let val = self.src_r8(r);
+        let result = a - (val + cf);
+        self.a.write(result);
+
+        if result == 0 {
+            self.zf = true;
+        }
+        self.nf = true;
+        if bit::check_borrow(a, val, 4) {
+            self.hf = true;
+        }
+        if bit::check_borrow(a, val + cf, 8) {
+            self.cf = true;
+        }
+    }
+
+    fn and(&mut self, r: R8) {
+        let a = self.a.val();
+        let val = self.src_r8(r);
+        let result = a & val;
+        self.a.write(result);
+
+        if result == 0 {
+            self.zf = true;
+        }
+        self.nf = false;
+        self.hf = true;
+        self.cf = false;
+    }
+
+    fn xor(&mut self, r: R8) {
+        let a = self.a.val();
+        let val = self.src_r8(r);
+        let result = a ^ val;
+        self.a.write(result);
+
+        if result == 0 {
+            self.zf = true;
+        }
+        self.nf = false;
+        self.hf = false;
+        self.cf = false;
+    }
+
+    fn or(&mut self, r: R8) {
+        let a = self.a.val();
+        let val = self.src_r8(r);
+        let result = a | val;
+        self.a.write(result);
+
+        if result == 0 {
+            self.zf = true;
+        }
+        self.nf = false;
+        self.hf = false;
+        self.cf = false;
+    }
+
+    fn cp(&mut self, r: R8) {
+        let a = self.a.val();
+        let val = self.src_r8(r);
+        let result = a - val;
+
+        if result == 0 {
+            self.zf = true;
+        }
+        self.nf = false;
+        if bit::check_borrow(a, val, 4) {
+            self.hf = true;
+        }
+        if bit::check_borrow(a, val, 8) {
+            self.cf = true;
+        }
     }
 }
 

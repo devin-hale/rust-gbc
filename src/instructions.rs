@@ -47,11 +47,6 @@ pub struct Instruction {
     length: u8,
     cycles: (u8, u8),
 
-    z: FlagBehavior,
-    n: FlagBehavior,
-    h: FlagBehavior,
-    c: FlagBehavior,
-
     // for purposes for proper string representation when executing
     n8: Option<u8>,
     n16: Option<u16>,
@@ -91,34 +86,10 @@ impl Default for Instruction {
             op: Operation::NOP,
             length: 1,
             cycles: (4, 0),
-            z: Default::default(),
-            n: Default::default(),
-            h: Default::default(),
-            c: Default::default(),
             n8: None,
             n16: None,
         }
     }
-}
-
-#[derive(Default)]
-pub enum FlagState {
-    #[default]
-    Reset,
-    Set,
-}
-
-#[derive(Default)]
-pub enum FlagBehavior {
-    #[default]
-    None,
-    Set,
-    Reset,
-    Overflow(u8),
-    Borrow(u8),
-    IfZero(FlagState),
-    Invert,
-    Dependent,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -368,13 +339,13 @@ pub enum Operation {
     JR(JR),
     STOP,
     HALT,
-    ADC,
-    SUB,
-    SBC,
-    AND,
-    XOR,
-    OR,
-    CP,
+    ADC(R8),
+    SUB(R8),
+    SBC(R8),
+    AND(R8),
+    XOR(R8),
+    OR(R8),
+    CP(R8),
     RET,
     RETI,
     JP,
@@ -418,13 +389,13 @@ impl Display for Operation {
             Operation::JR(jr) => jr.to_string(),
             Operation::STOP => String::from("stop"),
             Operation::HALT => String::from("halt"),
-            //Operation::ADC => "adc",
-            //Operation::SUB => "sub",
-            //Operation::SBC => "sbc",
-            //Operation::AND => "and",
-            //Operation::XOR => "xor",
-            //Operation::OR => "or",
-            //Operation::CP => "cp",
+            Operation::ADC(adc) => adc.to_string(),
+            Operation::SUB(r) => format!("sub a, {}", r),
+            Operation::SBC(r) => format!("sbc a, {}", r),
+            Operation::AND(r) => format!("and a, {}", r),
+            Operation::XOR(r) => format!("xor a, {}", r),
+            Operation::OR(r) => format!("or a, {}", r),
+            Operation::CP(r) => format!("cp a, {}", r),
             //Operation::RET => "ret",
             //Operation::RETI => "reti",
             //Operation::JP => "jp",
@@ -453,28 +424,28 @@ impl Display for Operation {
     }
 }
 
-impl From<ADD> for Operation {
-    fn from(value: ADD) -> Self {
-        Operation::ADD(value)
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ADD {
-    R8(R8, R8),
-    R16(R16, R16),
-    SP(i8),
+    A(R8),
+    HL(R16),
+    SP,
 }
 
 impl Display for ADD {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = String::from("add");
         match self {
-            ADD::R16(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
-            ADD::R8(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
-            ADD::SP(n8) => s.push_str(format!("sp, {}", n8).as_str()),
+            ADD::A(r) => s.push_str(format!("a, {}", r).as_str()),
+            ADD::HL(r) => s.push_str(format!("hl, {}", r).as_str()),
+            ADD::SP => s.push_str("sp, e8"),
         }
         write!(f, "{}", s)
+    }
+}
+
+impl From<ADD> for Operation {
+    fn from(value: ADD) -> Self {
+        Operation::ADD(value)
     }
 }
 
@@ -576,8 +547,8 @@ impl Display for JR {
 pub fn decode(opcode: u8) -> Result<Instruction, Error> {
     match (opcode >> 6) & 0x3 {
         0x00 => Ok(decode_block_0(opcode)?),
-        //0x01 => Ok(decode_block_1(opcode)?),
-        //0x10 => Ok(decode_block_2(opcode)?),
+        0x01 => Ok(decode_block_1(opcode)?),
+        0x10 => Ok(decode_block_2(opcode)?),
         //0x11 => {
         //    let i = decode_block_3(opcode)?;
         //    if i.op == Operation::PREFIX {
@@ -663,12 +634,9 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         // add hl, r16
         0b1001 => {
             let r: R16 = ((opcode & 0b0011_0000) >> 4).try_into()?;
-            i.op = ADD::R16(R16::HL, r).into();
+            i.op = ADD::HL(r).into();
             i.length = 1;
             i.cycles = (8, 0);
-            i.n = FlagBehavior::Reset;
-            i.h = FlagBehavior::Overflow(11);
-            i.c = FlagBehavior::Overflow(15);
             return Ok(i);
         }
         _ => (),
@@ -682,9 +650,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = INC::R8(r).into();
             i.length = 1;
             i.cycles = (4, 0);
-            i.z = FlagBehavior::IfZero(FlagState::Reset);
-            i.n = FlagBehavior::Reset;
-            i.h = FlagBehavior::Overflow(3);
             return Ok(i);
         }
 
@@ -694,9 +659,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = DEC::R8(r).into();
             i.length = 1;
             i.cycles = (4, 0);
-            i.z = FlagBehavior::IfZero(FlagState::Set);
-            i.h = FlagBehavior::Borrow(4);
-            i.n = FlagBehavior::Set;
             return Ok(i);
         }
 
@@ -741,10 +703,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::RLCA;
             i.length = 1;
             i.cycles = (4, 0);
-            i.z = FlagBehavior::Reset;
-            i.n = FlagBehavior::Reset;
-            i.h = FlagBehavior::Reset;
-            i.c = FlagBehavior::Dependent;
             return Ok(i);
         }
         // rrca
@@ -752,10 +710,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::RRCA;
             i.length = 1;
             i.cycles = (4, 0);
-            i.z = FlagBehavior::Reset;
-            i.n = FlagBehavior::Reset;
-            i.h = FlagBehavior::Reset;
-            i.c = FlagBehavior::Dependent;
             return Ok(i);
         }
         // rla
@@ -763,10 +717,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::RLA;
             i.length = 1;
             i.cycles = (4, 0);
-            i.z = FlagBehavior::Reset;
-            i.n = FlagBehavior::Reset;
-            i.h = FlagBehavior::Reset;
-            i.c = FlagBehavior::Dependent;
             return Ok(i);
         }
         // rra
@@ -774,10 +724,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::RRA;
             i.length = 1;
             i.cycles = (4, 0);
-            i.z = FlagBehavior::Reset;
-            i.n = FlagBehavior::Reset;
-            i.h = FlagBehavior::Reset;
-            i.c = FlagBehavior::Dependent;
             return Ok(i);
         }
         // daa
@@ -785,9 +731,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::DAA;
             i.length = 1;
             i.cycles = (4, 0);
-            i.h = FlagBehavior::Reset;
-            i.c = FlagBehavior::Dependent;
-            i.z = FlagBehavior::IfZero(FlagState::Set);
             return Ok(i);
         }
         // cpl
@@ -795,8 +738,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::CPL;
             i.length = 1;
             i.cycles = (4, 0);
-            i.n = FlagBehavior::Set;
-            i.h = FlagBehavior::Set;
             return Ok(i);
         }
         // scf
@@ -804,9 +745,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::SCF;
             i.length = 1;
             i.cycles = (4, 0);
-            i.n = FlagBehavior::Reset;
-            i.h = FlagBehavior::Reset;
-            i.c = FlagBehavior::Set;
             return Ok(i);
         }
         // ccf
@@ -814,9 +752,6 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::CCF;
             i.length = 1;
             i.cycles = (4, 0);
-            i.n = FlagBehavior::Reset;
-            i.h = FlagBehavior::Reset;
-            i.c = FlagBehavior::Invert;
             return Ok(i);
         }
         _ => (),
@@ -850,191 +785,63 @@ fn decode_block_1(opcode: u8) -> Result<Instruction, Error> {
         return Ok(i);
     }
 }
-//
-//fn decode_block_2(opcode: u8) -> Result<Instruction, InstructionError> {
-//    let mut i = Instruction::new();
-//    let operand = R8::from_u8(opcode & 0b0000_0111)?;
-//    i.dest = Some(R8::A.into());
-//    i.src = Some(operand.into());
-//
-//    i.length = 1;
-//    if operand == R8::HlMem {
-//        i.cycles = 8;
-//    } else {
-//        i.cycles = 4;
-//    }
-//
-//    match (opcode & 0b1111_1000) >> 3 {
-//        // add a, r8
-//        0b1_0000 => {
-//            i.op = Add::R8(R8::A, operand).into();
-//            i.ex = |i, cpu| {
-//                let a = cpu.read_byte(i.dest())?;
-//                let val = cpu.read_byte(i.src())?;
-//                let result = a + val;
-//                cpu.write_byte(i.dest(), result)?;
-//                if result == 0 {
-//                    cpu.flag_set(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                if bit::add_overflow(a, val, 3) {
-//                    cpu.flag_set(Flag::HC);
-//                }
-//                if bit::add_overflow(a, val, 7) {
-//                    cpu.flag_set(Flag::C);
-//                }
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // adc a, r8
-//        0b1_0001 => {
-//            i.op = Operation::ADC;
-//            i.ex = |i, cpu| {
-//                let a = cpu.read_byte(i.dest())?;
-//                let cf = cpu.flag(Flag::C);
-//                let val = cpu.read_byte(i.src())?;
-//                let result = a + val + cf;
-//                cpu.write_byte(i.dest(), result)?;
-//                if result == 0 {
-//                    cpu.flag_set(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                if bit::add_overflow(a, val + cf, 3) {
-//                    cpu.flag_set(Flag::HC);
-//                }
-//                if bit::add_overflow(a, val + cf, 7) {
-//                    cpu.flag_set(Flag::C);
-//                }
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // sub a, r8
-//        0b1_0010 => {
-//            i.op = Operation::SUB;
-//            i.ex = |i, cpu| {
-//                let a = cpu.read_byte(i.dest())?;
-//                let val = cpu.read_byte(i.src())?;
-//                let result = a - val;
-//                cpu.write_byte(i.dest(), result)?;
-//                if result == 0 {
-//                    cpu.flag_set(Flag::Z);
-//                }
-//                cpu.flag_set(Flag::N);
-//                if bit::sub_borrow(a, val, 4) {
-//                    cpu.flag_set(Flag::HC);
-//                }
-//                if bit::sub_borrow(a, val, 8) {
-//                    cpu.flag_set(Flag::C);
-//                }
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // sbc a, r8
-//        0b1_0011 => {
-//            i.op = Operation::SBC;
-//            i.ex = |i, cpu| {
-//                let a = cpu.read_byte(i.dest())?;
-//                let cf = cpu.flag(Flag::C);
-//                let val = cpu.read_byte(i.src())?;
-//                let result = a - (val + cf);
-//                cpu.write_byte(i.dest(), result)?;
-//                if result == 0 {
-//                    cpu.flag_set(Flag::Z);
-//                }
-//                cpu.flag_set(Flag::N);
-//                if bit::sub_borrow(a, val, 4) {
-//                    cpu.flag_set(Flag::HC);
-//                }
-//                if bit::sub_borrow(a, val + cf, 8) {
-//                    cpu.flag_set(Flag::C);
-//                }
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // and a, r8
-//        0b1_0100 => {
-//            i.op = Operation::AND;
-//            i.ex = |i, cpu| {
-//                let a = cpu.read_byte(i.dest())?;
-//                let val = cpu.read_byte(i.src())?;
-//                let result = a & val;
-//                cpu.write_byte(i.dest(), result)?;
-//                if result == 0 {
-//                    cpu.flag_set(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_set(Flag::HC);
-//                cpu.flag_reset(Flag::C);
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // xor a, r8
-//        0b1_0101 => {
-//            i.op = Operation::XOR;
-//            i.ex = |i, cpu| {
-//                let a = cpu.read_byte(i.dest())?;
-//                let val = cpu.read_byte(i.src())?;
-//                let result = a ^ val;
-//                cpu.write_byte(i.dest(), result)?;
-//                if result == 0 {
-//                    cpu.flag_set(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.flag_reset(Flag::C);
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // or a, r8
-//        0b1_0110 => {
-//            i.op = Operation::OR;
-//            i.ex = |i, cpu| {
-//                let a = cpu.read_byte(i.dest())?;
-//                let val = cpu.read_byte(i.src())?;
-//                let result = a | val;
-//                cpu.write_byte(i.dest(), result)?;
-//                if result == 0 {
-//                    cpu.flag_set(Flag::Z);
-//                }
-//                cpu.flag_reset(Flag::N);
-//                cpu.flag_reset(Flag::HC);
-//                cpu.flag_reset(Flag::C);
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        // cp a, r8
-//        0b1_0111 => {
-//            i.op = Operation::CP;
-//            i.ex = |i, cpu| {
-//                let a = cpu.read_byte(i.dest())?;
-//                let val = cpu.read_byte(i.src())?;
-//                let result = a - val;
-//                if result == 0 {
-//                    cpu.flag_set(Flag::Z);
-//                }
-//                cpu.flag_set(Flag::N);
-//                if bit::sub_borrow(a, val, 4) {
-//                    cpu.flag_set(Flag::HC);
-//                }
-//                if bit::sub_borrow(a, val, 8) {
-//                    cpu.flag_set(Flag::C);
-//                }
-//                Ok(())
-//            };
-//            return Ok(i);
-//        }
-//        _ => (),
-//    }
-//
-//    Err(InstructionError::Unimplemented(opcode))
-//}
+
+fn decode_block_2(opcode: u8) -> Result<Instruction, Error> {
+    let mut i = Instruction::new();
+    let r: R8 = (opcode & 0b0000_0111).try_into()?;
+    i.length = 1;
+    if r == R8::HL {
+        i.cycles = (8, 0);
+    } else {
+        i.cycles = (4, 0);
+    }
+
+    match (opcode & 0b1111_1000) >> 3 {
+        // add a, r8
+        0b1_0000 => {
+            i.op = ADD::A(r).into();
+            return Ok(i);
+        }
+        // adc a, r8
+        0b1_0001 => {
+            i.op = Operation::ADC(r);
+            return Ok(i);
+        }
+        // sub a, r8
+        0b1_0010 => {
+            i.op = Operation::SUB(r);
+            return Ok(i);
+        }
+        // sbc a, r8
+        0b1_0011 => {
+            i.op = Operation::SBC(r);
+            return Ok(i);
+        }
+        // and a, r8
+        0b1_0100 => {
+            i.op = Operation::AND(r);
+            return Ok(i);
+        }
+        // xor a, r8
+        0b1_0101 => {
+            i.op = Operation::XOR(r);
+            return Ok(i);
+        }
+        // or a, r8
+        0b1_0110 => {
+            i.op = Operation::OR(r);
+            return Ok(i);
+        }
+        // cp a, r8
+        0b1_0111 => {
+            i.op = Operation::CP(r);
+            return Ok(i);
+        }
+        _ => (),
+    }
+
+    Err(Error::Unknown)
+}
 //
 //const INVALID_OPCODES: [u8; 11] = [
 //    0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
