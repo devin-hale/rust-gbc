@@ -64,6 +64,10 @@ impl Instruction {
     pub fn branch_cycles(&self) -> u8 {
         self.cycles.1
     }
+
+    pub fn op(&self) -> Operation {
+        self.op
+    }
 }
 
 impl Display for Instruction {

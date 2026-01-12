@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::{
     bit,
-    instructions::{self, ADD, B3, Cond, INC, LD, Mem, R8, R16, T3},
+    instructions::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3},
     memory::Memory,
 };
 
@@ -251,7 +251,30 @@ impl CPU {
     //    Instruction::new()
     //}
 
-    //pub fn execute(&mut self, i: Instruction) {}
+    pub fn execute(&mut self, i: Instruction) {
+        match i.op() {
+            Operation::NOP => {}
+            Operation::DI => self.ie = false,
+            Operation::EI => self.ie = true,
+            Operation::STOP => self.stop = true,
+            Operation::HALT => self.halt = true,
+            Operation::LD(ld) => {
+                self.ld(ld).unwrap();
+            }
+            Operation::INC(inc) => self.inc(inc),
+            Operation::DEC(dec) => self.dec(dec),
+            Operation::ADD(add) => self.add(add),
+            Operation::ADC(r) => self.adc(r),
+            Operation::RLCA => self.rlc(R8::A),
+            Operation::RRCA => self.rrc(R8::A),
+            Operation::RLA => self.rl(R8::A),
+            Operation::RRA => self.rr(R8::A),
+            Operation::DAA => self.daa(),
+            Operation::CPL => self.cpl(),
+            Operation::SCF => self.scf(),
+            _ => (),
+        }
+    }
 
     fn jp(&mut self, r: R16) {
         let addr = self.src_r16(r);
@@ -499,6 +522,13 @@ impl CPU {
                 self.pc += 1;
             }
             _ => panic!("attempt to increment {}", r),
+        }
+    }
+
+    fn dec(&mut self, d: DEC) {
+        match d {
+            DEC::R16(r) => self.dec_r16(r),
+            DEC::R8(r) => self.dec_r8(r),
         }
     }
 
