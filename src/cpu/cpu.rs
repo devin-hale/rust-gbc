@@ -1556,6 +1556,10 @@ mod test {
             assert_eq!(i.op(), Operation::ADD(ADD::HL(r)));
             cpu.execute(i);
             assert_eq!(cpu.hl().val(), hl + val);
+
+            assert!(!cpu.flag(Flag::N));
+            assert_eq!(cpu.flag(Flag::H), bit::check_overflow_word(hl, val, 11));
+            assert_eq!(cpu.flag(Flag::C), bit::check_overflow_word(hl, val, 15));
         }
     }
 
@@ -1571,6 +1575,17 @@ mod test {
         assert_eq!(i.op(), Operation::ADD(ADD::SP));
         cpu.execute(i);
         assert_eq!(cpu.sp, sp + (val as u16));
+
+        assert!(!cpu.flag(Flag::Z));
+        assert!(!cpu.flag(Flag::N));
+        assert_eq!(
+            cpu.flag(Flag::H),
+            bit::check_overflow_word(sp, val as u16, 11)
+        );
+        assert_eq!(
+            cpu.flag(Flag::C),
+            bit::check_overflow_word(sp, val as u16, 15)
+        );
     }
 
     #[test]
@@ -1585,5 +1600,16 @@ mod test {
         assert_eq!(i.op(), Operation::LD(LD::HLSPN));
         cpu.execute(i);
         assert_eq!(cpu.hl().val(), sp + (val as u16));
+
+        assert!(!cpu.flag(Flag::Z));
+        assert!(!cpu.flag(Flag::N));
+        assert_eq!(
+            cpu.flag(Flag::H),
+            bit::check_overflow_word(sp, val as u16, 11)
+        );
+        assert_eq!(
+            cpu.flag(Flag::C),
+            bit::check_overflow_word(sp, val as u16, 15)
+        );
     }
 }
