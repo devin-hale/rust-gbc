@@ -867,7 +867,7 @@ impl CPU {
     fn add_r8(&mut self, r: R8) {
         let a = self.a.val();
         let val = self.src_r8(r);
-        let result = a + val;
+        let result = a.wrapping_add(val);
         self.a.write(result);
 
         if result == 0 {
@@ -885,7 +885,7 @@ impl CPU {
     fn add_r16(&mut self, r: R16) {
         let hl = self.hl().val();
         let val = self.src_r16(r);
-        let result = hl + val;
+        let result = hl.wrapping_add(val);
         self.hl().write(result);
 
         self.reset_flag(Flag::N);
@@ -900,7 +900,8 @@ impl CPU {
     fn add_sp(&mut self) {
         let val = self.imm() as u16;
         let sp = self.sp;
-        self.sp += val;
+        let result = sp.wrapping_add(val);
+        self.sp = result;
 
         self.reset_flag(Flag::Z);
         self.reset_flag(Flag::N);
@@ -918,16 +919,16 @@ impl CPU {
         let cf = self.cf() as u8;
         let val = self.src_r8(b);
 
-        let result = a + val + cf;
+        let result = a.wrapping_add(val.wrapping_add(cf));
         self.a.write(result);
         if result == 0 {
             self.set_flag(Flag::Z);
         }
         self.reset_flag(Flag::N);
-        if bit::check_overflow(a, val + cf, 3) {
+        if bit::check_overflow(a, val.wrapping_add(cf), 3) {
             self.set_flag(Flag::H);
         }
-        if bit::check_overflow(a, val + cf, 7) {
+        if bit::check_overflow(a, val.wrapping_add(cf), 7) {
             self.set_flag(Flag::C);
         }
     }
@@ -935,7 +936,7 @@ impl CPU {
     fn sub(&mut self, r: R8) {
         let a = self.a.val();
         let val = self.src_r8(r);
-        let result = a - val;
+        let result = a.wrapping_sub(val);
         self.reg(r).write(result);
 
         if result == 0 {
@@ -954,7 +955,7 @@ impl CPU {
         let a = self.a.val();
         let cf = self.cf() as u8;
         let val = self.src_r8(r);
-        let result = a - (val + cf);
+        let result = a.wrapping_sub(val.wrapping_add(cf));
         self.a.write(result);
 
         if result == 0 {
@@ -1014,7 +1015,7 @@ impl CPU {
     fn cp(&mut self, r: R8) {
         let a = self.a.val();
         let val = self.src_r8(r);
-        let result = a - val;
+        let result = a.wrapping_sub(val);
 
         if result == 0 {
             self.set_flag(Flag::Z);
@@ -1473,19 +1474,21 @@ mod test {
 
     #[test]
     fn ldh_n8_a() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11100000;
+        for n in 0..u8::MAX {
+            let (mut cpu, mem) = setup();
+            let opcode = 0b11100000;
 
-        let addr = 0xDE;
-        let val = 0xFE;
-        mem.lock().unwrap().write(cpu.pc, addr);
-        cpu.a.write(val);
+            let addr = n;
+            let val = 0xFE;
+            mem.lock().unwrap().write(cpu.pc, addr);
+            cpu.a.write(val);
 
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::LDH(LDH::Mem(Mem::N8)));
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::LDH(LDH::Mem(Mem::N8)));
 
-        cpu.execute(i);
-        assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), val);
+            cpu.execute(i);
+            assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), val);
+        }
     }
 
     #[test]
@@ -1768,30 +1771,31 @@ mod test {
 
     #[test]
     fn add_a_n8() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11000110;
+        for n in 0..=u8::MAX {
+            let (mut cpu, mem) = setup();
+            let opcode = 0b11000110;
 
-        let v1 = 0x3b;
-        let v2 = 0x3b;
+            let v1 = 0x3b;
 
-        cpu.a.write(v1);
-        mem.lock().unwrap().write(cpu.pc, v2);
+            cpu.a.write(v1);
+            mem.lock().unwrap().write(cpu.pc, n);
 
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::ADD(ADD::A(R8::N8)));
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::ADD(ADD::A(R8::N8)));
 
-        cpu.execute(i);
-        assert_eq!(cpu.a.val(), v1 + v2);
+            cpu.execute(i);
+            assert_eq!(cpu.a.val(), v1.wrapping_add(n));
 
-        if v1 + v2 == 0 {
-            assert!(cpu.flag(Flag::Z));
-        }
-        assert!(!cpu.flag(Flag::N));
-        if bit::check_overflow(v1, v2, 3) {
-            assert!(cpu.flag(Flag::H));
-        }
-        if bit::check_overflow(v1, v2, 7) {
-            assert!(cpu.flag(Flag::C));
+            if v1.wrapping_add(n) == 0 {
+                assert!(cpu.flag(Flag::Z));
+            }
+            assert!(!cpu.flag(Flag::N));
+            if bit::check_overflow(v1, n, 3) {
+                assert!(cpu.flag(Flag::H));
+            }
+            if bit::check_overflow(v1, n, 7) {
+                assert!(cpu.flag(Flag::C));
+            }
         }
     }
 

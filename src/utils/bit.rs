@@ -51,7 +51,7 @@ pub fn check_borrow(a: u8, b: u8, n: u8) -> bool {
     let fill = fill_to(n);
     let a = a & fill;
     let b = b & fill;
-    let r = a - b;
+    let r = a.wrapping_sub(b);
     is_set(a, n) && !is_set(r, n)
 }
 
@@ -62,7 +62,7 @@ pub fn check_borrow_word(a: u16, b: u16, n: u8) -> bool {
     let fill = fill_to_word(n as u16);
     let a = a & fill;
     let b = b & fill;
-    let r = a - b;
+    let r = a.wrapping_sub(b);
     is_set_u16(a, n) && !is_set_u16(r, n)
 }
 
@@ -71,9 +71,9 @@ pub fn check_overflow(a: u8, b: u8, n: u8) -> bool {
     let a = a & bit;
     let b = b & bit;
     if n == 7 {
-        get_u16((a as u16) + (b as u16), n + 1) == 1
+        get_u16((a as u16).wrapping_add(b as u16), n.wrapping_add(1)) == 1
     } else {
-        get(a + b, n + 1) == 1
+        get(a.wrapping_add(b), n.wrapping_add(1)) == 1
     }
 }
 
@@ -82,9 +82,9 @@ pub fn check_overflow_word(a: u16, b: u16, n: u8) -> bool {
     let a = a & bit;
     let b = b & bit;
     if n == 15 {
-        ((((a as u32) + (b as u32)) >> (n + 1)) & 1) == 1
+        ((((a as u32).wrapping_add(b as u32)) >> n.wrapping_add(1)) & 1) == 1
     } else {
-        get_u16(a + b, n + 1) == 1
+        get_u16(a.wrapping_add(b), n.wrapping_add(1)) == 1
     }
 }
 
