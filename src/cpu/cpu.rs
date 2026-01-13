@@ -1542,4 +1542,20 @@ mod test {
             assert_eq!(cpu.src_r16(r), val - 1);
         }
     }
+
+    #[test]
+    fn add_hl_r16() {
+        for pp in 0..3u8 {
+            let (mut cpu, _) = setup();
+            let opcode = 0b0000_1001 | (pp << 4);
+            let r: R16 = pp.try_into().unwrap();
+            let val = 0x0fee;
+            cpu.ld_r16(r, val);
+            let hl = cpu.hl().val();
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::ADD(ADD::HL(r)));
+            cpu.execute(i);
+            assert_eq!(cpu.hl().val(), hl + val);
+        }
+    }
 }
