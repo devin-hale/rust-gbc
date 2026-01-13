@@ -46,6 +46,9 @@ pub struct CPU {
     isig_prep: Vec<Signal>,
     isig: Vec<Signal>,
     ime: bool,
+
+    n16: Option<u16>,
+    n8: Option<u8>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -184,6 +187,8 @@ impl CPU {
             isig: vec![],
             isig_prep: vec![],
             ime: false,
+            n8: None,
+            n16: None,
         }
     }
 
@@ -277,10 +282,22 @@ impl CPU {
         self.mem().read(pc)
     }
 
+    pub fn imm(&mut self) -> u8 {
+        let n = self.fetch();
+        self.n8 = Some(n);
+        n
+    }
+
     pub fn fetch_word(&mut self) -> u16 {
         let low = self.fetch() as u16;
         let high = self.fetch() as u16;
         (high << 8) | low
+    }
+
+    pub fn imm_word(&mut self) -> u16 {
+        let n = self.fetch_word();
+        self.n16 = Some(n);
+        n
     }
 
     pub fn decode(&self, opcode: u8) -> Result<Instruction, Error> {
@@ -288,6 +305,7 @@ impl CPU {
     }
 
     pub fn execute(&mut self, i: Instruction) {
+        let mut i = i;
         match i.op() {
             Operation::NOP => {}
             Operation::DI => self.di(),
@@ -336,7 +354,7 @@ impl CPU {
                 LDH::Mem(r) => self.ldh_m(r),
             },
             Operation::JR(jr) => {
-                let v = self.fetch();
+                let v = self.imm();
                 match jr {
                     JR::Cond(c) => self.jr_cond(c, v),
                     JR::N8 => self.jr(v),
@@ -351,6 +369,14 @@ impl CPU {
             Operation::XOR(r) => self.xor(r),
             Operation::OR(r) => self.or(r),
             Operation::CP(r) => self.cp(r),
+        }
+        if let Some(n) = self.n8 {
+            i.set_n8(n);
+            self.n8 = None;
+        }
+        if let Some(n) = self.n16 {
+            i.set_n16(n);
+            self.n16 = None;
         }
     }
 
@@ -397,10 +423,9 @@ impl CPU {
     }
 
     fn call(&mut self) {
-        let n16 = self.fetch_word();
         let pc = self.pc;
         self.push(pc);
-        self.pc = n16;
+        self.pc = self.fetch_word();
     }
 
     fn call_cond(&mut self, c: Cond) {
@@ -482,9 +507,15 @@ impl CPU {
             Mem::BC => self.bc().val(),
             Mem::DE => self.de().val(),
             Mem::SP => self.de().val(),
-            Mem::SPN8 => self.sp + (self.fetch() as u16),
-            Mem::N16 => self.fetch_word(),
-            Mem::N8 => (self.fetch() as u16) + 0xFF00,
+            Mem::SPN8 => {
+                let n = self.imm();
+                self.sp + (n as u16)
+            }
+            Mem::N16 => self.imm_word(),
+            Mem::N8 => {
+                let n = self.imm();
+                return (n as u16) + 0xFF00;
+            }
             Mem::C => (self.c.val() as u16) + 0xFF00,
             Mem::HLI => {
                 let addr = self.hl().val();
@@ -531,7 +562,7 @@ impl CPU {
 
     fn ld_hl_sp_n(&mut self) {
         let sp = self.sp;
-        let e = self.fetch() as u16;
+        let e = self.imm() as u16;
         let result = sp + e;
         self.hl().write(result);
 
@@ -547,7 +578,7 @@ impl CPU {
 
     pub fn src_r8(&mut self, r: R8) -> u8 {
         match r {
-            R8::N8 => self.fetch(),
+            R8::N8 => self.imm(),
             R8::A => self.a.val(),
             R8::B => self.b.val(),
             R8::C => self.c.val(),
@@ -863,7 +894,7 @@ impl CPU {
     }
 
     fn add_sp(&mut self) {
-        let val = self.fetch() as u16;
+        let val = self.imm() as u16;
         let sp = self.sp;
         self.sp += val;
 
@@ -996,7 +1027,7 @@ impl CPU {
     fn ldh_a(&mut self, m: instr::Mem) {
         let addr = match m {
             instr::Mem::C => (self.c.val() as u16) + 0xFF00,
-            instr::Mem::N8 => (self.fetch() as u16) + 0xFF00,
+            instr::Mem::N8 => (self.imm() as u16) + 0xFF00,
             _ => panic!("invalid ldh destination operation"),
         };
         let val = self.mem().read(addr);
@@ -1007,7 +1038,7 @@ impl CPU {
         let a = self.a.val();
         let addr = match m {
             instr::Mem::C => (self.c.val() as u16) | 0xFF00,
-            instr::Mem::N8 => (self.fetch() as u16) | 0xFF00,
+            instr::Mem::N8 => (self.imm() as u16) | 0xFF00,
             _ => panic!("invalid ldh destination operation"),
         };
         self.mem().write(addr, a);
@@ -1824,7 +1855,128 @@ mod test {
         }
     }
 
-    // CONTROL INSTRUCTIONS
+    // CONTROL FLOW INSTRUCTIONS
+
+    #[test]
+    fn rst() {
+        for ttt in 0..=7u8 {
+            let (mut cpu, mem) = setup();
+            let op = 0b1100_0111 | (ttt << 3);
+            let t: T3 = ttt.into();
+            let i = cpu.decode(op).unwrap();
+            assert_eq!(i.op(), Operation::RST(t));
+
+            let sp = cpu.sp;
+            let pc = cpu.pc;
+
+            cpu.execute(i);
+
+            assert_eq!(mem.lock().unwrap().read_word(cpu.sp), pc);
+            assert_eq!(cpu.sp, sp - 2);
+            assert_eq!(cpu.pc as u8, t.val());
+        }
+    }
+
+    #[test]
+    fn call() {
+        let (mut cpu, mem) = setup();
+        let op = 0b11001101;
+        let val = 0xDEAD;
+
+        mem.lock().unwrap().write_word(cpu.pc, val);
+        let i = cpu.decode(op).unwrap();
+        assert_eq!(i.op(), Operation::CALL);
+
+        let sp = cpu.sp;
+        let pc = cpu.pc;
+
+        cpu.execute(i);
+
+        assert_eq!(cpu.sp, sp - 2);
+        assert_eq!(mem.lock().unwrap().read_word(cpu.sp), pc);
+        assert_eq!(cpu.pc, val);
+    }
+
+    #[test]
+    fn call_cond() {
+        // false
+        for cc in 0..=3u8 {
+            let (mut cpu, mem) = setup();
+            let cond: Cond = cc.try_into().unwrap();
+            let op = 0b11000100 | (cc << 3);
+            let val = 0xDEAD;
+
+            let cond_met = cpu.cc(cond);
+
+            cpu.sp = 0xD00D;
+            mem.lock().unwrap().write_word(cpu.pc, val);
+            let i = cpu.decode(op).unwrap();
+            assert_eq!(i.op(), Operation::CALLC(cond));
+
+            let sp = cpu.sp;
+            let pc = cpu.pc;
+
+            cpu.execute(i);
+
+            if cond_met {
+                assert_eq!(cpu.sp, sp - 2);
+                assert_eq!(mem.lock().unwrap().read_word(cpu.sp), pc);
+                assert_eq!(cpu.pc, val);
+            } else {
+                assert_ne!(cpu.sp, sp - 2);
+                assert_ne!(mem.lock().unwrap().read_word(cpu.sp), pc);
+                assert_ne!(cpu.pc, val);
+            }
+        }
+    }
+
+    #[test]
+    fn jp() {
+        let (mut cpu, mem) = setup();
+        let val = 0xDEAD;
+        let op = 0b11000011;
+
+        mem.lock().unwrap().write_word(cpu.pc, val);
+        let i = cpu.decode(op).unwrap();
+        assert_eq!(i.op(), Operation::JP(R16::N16));
+
+        cpu.execute(i);
+        assert_eq!(cpu.pc, val);
+    }
+
+    #[test]
+    fn jp_hl() {
+        let (mut cpu, _) = setup();
+        let val = 0xDEAD;
+        let op = 0b11101001;
+        cpu.hl().write(val);
+        let i = cpu.decode(op).unwrap();
+        assert_eq!(i.op(), Operation::JP(R16::HL));
+        cpu.execute(i);
+        assert_eq!(cpu.pc, val);
+    }
+
+    #[test]
+    fn jp_cond() {
+        for cc in 0..=3u8 {
+            let (mut cpu, mem) = setup();
+            let cond: Cond = cc.try_into().unwrap();
+            let op = 0b1100_0010 | (cc << 3);
+            let val = 0xDEAD;
+
+            mem.lock().unwrap().write_word(cpu.pc, val);
+            let i = cpu.decode(op).unwrap();
+            assert_eq!(i.op(), Operation::JPC(cond, R16::N16));
+
+            cpu.execute(i);
+
+            if cpu.cc(cond) {
+                assert_eq!(cpu.pc, val);
+            }
+        }
+    }
+
+    // CPU CONTROL INSTRUCTIONS
 
     #[test]
     fn di() {

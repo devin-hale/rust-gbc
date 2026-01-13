@@ -29,6 +29,7 @@ pub enum Error {
     Unknown,
 }
 
+#[derive(Debug, Clone)]
 pub struct Instruction {
     opcode: u8,
     op: Operation,
@@ -56,16 +57,24 @@ impl Instruction {
     pub fn op(&self) -> Operation {
         self.op
     }
+
+    pub fn set_n8(&mut self, n: u8) {
+        self.n8 = Some(n)
+    }
+
+    pub fn set_n16(&mut self, n: u16) {
+        self.n16 = Some(n)
+    }
 }
 
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = self.op.to_string();
         if let Some(n) = self.n8 {
-            s = s.replace("n8", n.to_string().as_str());
+            s = s.replace("n8", format!("0x{:0>2x}", n).as_str());
         }
         if let Some(nn) = self.n8 {
-            s = s.replace("n16", nn.to_string().as_str());
+            s = s.replace("n16", format!("0x{:0>4x}", nn).as_str());
         }
         write!(f, "{}", s)
     }
@@ -183,7 +192,7 @@ impl Display for Mem {
             Mem::HLD => "[hl-]",
             Mem::SPN8 => "sp + n8",
         };
-        write!(f, "{}", s)
+        write!(f, "{}", String::from(s))
     }
 }
 
@@ -303,7 +312,7 @@ impl T3 {
 
 impl From<u8> for T3 {
     fn from(value: u8) -> Self {
-        T3(value / 8)
+        T3(value * 8)
     }
 }
 
@@ -315,7 +324,7 @@ impl From<T3> for u8 {
 
 impl Display for T3 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "0x{:0>2x}", self.0)
     }
 }
 
@@ -437,7 +446,7 @@ pub enum ADD {
 
 impl Display for ADD {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = String::from("add");
+        let mut s = String::from("add ");
         match self {
             ADD::A(r) => s.push_str(format!("a, {}", r).as_str()),
             ADD::HL(r) => s.push_str(format!("hl, {}", r).as_str()),
@@ -471,7 +480,7 @@ impl From<LD> for Operation {
 
 impl Display for LD {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = String::from("ld");
+        let mut s = String::from("ld ");
         match self {
             LD::R16(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
             LD::R8(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
@@ -546,7 +555,7 @@ impl Display for DEC {
             DEC::R8(r) => format!("{}", r),
             DEC::R16(r) => format!("{}", r),
         };
-        write!(f, "inc {}", o)
+        write!(f, "dec {}", o)
     }
 }
 
