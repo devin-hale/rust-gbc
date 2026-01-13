@@ -1558,4 +1558,18 @@ mod test {
             assert_eq!(cpu.hl().val(), hl + val);
         }
     }
+
+    #[test]
+    fn add_sp_e() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11101000;
+        let val = 0x11;
+        cpu.sp = 0x00ff;
+        mem.lock().unwrap().write(cpu.pc, val);
+        let sp = cpu.sp;
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::ADD(ADD::SP));
+        cpu.execute(i);
+        assert_eq!(cpu.sp, sp + (val as u16));
+    }
 }
