@@ -586,7 +586,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
     if opcode == 0x00 {
         return Ok(Instruction::default());
     }
-    if opcode == 0xF0 {
+    if opcode == 0b00010000 {
         let mut i = Instruction::new();
         i.opcode = opcode;
         i.op = Operation::STOP;

@@ -21,7 +21,7 @@ pub enum Error {
     Unknown,
 }
 
-pub enum InterruptSignal {
+enum Signal {
     Enable,
     Disable,
 }
@@ -43,8 +43,8 @@ pub struct CPU {
     stop: bool,
     halt: bool,
 
-    isig_prep: Vec<InterruptSignal>,
-    isig: Vec<InterruptSignal>,
+    isig_prep: Vec<Signal>,
+    isig: Vec<Signal>,
     ime: bool,
 }
 
@@ -355,7 +355,12 @@ impl CPU {
     }
 
     pub fn cycle(&mut self) -> Result<(), Error> {
-        if self.stop || self.halt {
+        if self.halt {
+            // check for interrupt
+            return Ok(());
+        }
+        if self.halt {
+            // check for reset signal
             return Ok(());
         }
         self.handle_isig_prep();
@@ -736,11 +741,11 @@ impl CPU {
     }
 
     fn ei(&mut self) {
-        self.isig_prep.push(InterruptSignal::Enable);
+        self.isig_prep.push(Signal::Enable);
     }
 
     fn di(&mut self) {
-        self.isig_prep.push(InterruptSignal::Disable);
+        self.isig_prep.push(Signal::Disable);
     }
 
     fn handle_isig_prep(&mut self) {
@@ -753,8 +758,8 @@ impl CPU {
     fn handle_isig(&mut self) {
         if self.isig.len() != 0 {
             match self.isig.remove(0) {
-                InterruptSignal::Enable => self.ime = true,
-                InterruptSignal::Disable => self.ime = false,
+                Signal::Enable => self.ime = true,
+                Signal::Disable => self.ime = false,
             }
         }
     }
@@ -810,7 +815,7 @@ impl CPU {
 
     fn ccf(&mut self) {
         self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
+        self.set_flag_from_val(Flag::H, self.cf() as u8);
         self.invert_flag(Flag::C);
     }
 
@@ -1266,16 +1271,7 @@ mod test {
         (cpu, mem)
     }
 
-    #[test]
-    fn halt() {
-        let opcode = 0b0111_0110;
-        let (cpu, _) = setup();
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::HALT);
-    }
-
     // LOAD INSTRUCTIONS
-
     #[test]
     fn ld_r_s() {
         for r in 0b000..=0b111 {
@@ -1863,5 +1859,51 @@ mod test {
         assert_eq!(cpu.isig_prep.len(), 0);
         assert_eq!(cpu.isig.len(), 0);
         assert!(cpu.ime);
+    }
+
+    #[test]
+    fn stop() {
+        let opcode = 0b00010000;
+        let (mut cpu, _) = setup();
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::STOP);
+        cpu.execute(i);
+        assert!(cpu.stop);
+    }
+
+    #[test]
+    fn halt() {
+        let opcode = 0b0111_0110;
+        let (mut cpu, _) = setup();
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::HALT);
+        cpu.execute(i);
+        assert!(cpu.halt);
+    }
+
+    #[test]
+    fn scf() {
+        let op = 0b00110111;
+        let (mut cpu, _) = setup();
+        let i = cpu.decode(op).unwrap();
+        assert_eq!(i.op(), Operation::SCF);
+        cpu.execute(i);
+        assert!(!cpu.flag(Flag::N));
+        assert!(!cpu.flag(Flag::H));
+        assert!(cpu.flag(Flag::C));
+    }
+
+    #[test]
+    fn ccf() {
+        let op = 0b00111111;
+        let (mut cpu, _) = setup();
+        let i = cpu.decode(op).unwrap();
+        assert_eq!(i.op(), Operation::CCF);
+        let cf = cpu.cf();
+
+        cpu.execute(i);
+        assert!(!cpu.flag(Flag::N));
+        assert_eq!(cpu.flag(Flag::H), cf);
+        assert_eq!(cpu.flag(Flag::C), !cf);
     }
 }
