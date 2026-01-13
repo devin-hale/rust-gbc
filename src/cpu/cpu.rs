@@ -21,7 +21,8 @@ pub enum Error {
     Unknown,
 }
 
-enum Signal {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InterruptControl {
     Enable,
     Disable,
 }
@@ -43,8 +44,8 @@ pub struct CPU {
     stop: bool,
     halt: bool,
 
-    isig_prep: Vec<Signal>,
-    isig: Vec<Signal>,
+    ic_0: Option<InterruptControl>,
+    ic_1: Option<InterruptControl>,
     ime: bool,
 
     n16: Option<u16>,
@@ -184,8 +185,8 @@ impl CPU {
             mem: mem.clone(),
             stop: false,
             halt: false,
-            isig: vec![],
-            isig_prep: vec![],
+            ic_0: None,
+            ic_1: None,
             ime: false,
             n8: None,
             n16: None,
@@ -389,11 +390,11 @@ impl CPU {
             // check for reset signal
             return Ok(());
         }
-        self.handle_isig_prep();
+        self.handle_ic_0();
         let opcode = self.fetch();
         let i = self.decode(opcode)?;
         self.execute(i);
-        self.handle_isig();
+        self.handle_ic_1();
         Ok(())
     }
 
@@ -776,26 +777,29 @@ impl CPU {
     }
 
     fn ei(&mut self) {
-        self.isig_prep.push(Signal::Enable);
+        self.ic_0 = Some(InterruptControl::Enable);
+        self.ic_1 = None;
     }
 
     fn di(&mut self) {
-        self.isig_prep.push(Signal::Disable);
+        self.ic_0 = Some(InterruptControl::Disable);
+        self.ic_1 = None;
     }
 
-    fn handle_isig_prep(&mut self) {
-        if self.isig_prep.len() != 0 {
-            let sig = self.isig_prep.remove(0);
-            self.isig.push(sig);
+    fn handle_ic_0(&mut self) {
+        if let Some(ic) = self.ic_0 {
+            self.ic_1 = Some(ic);
+            self.ic_0 = None;
         }
     }
 
-    fn handle_isig(&mut self) {
-        if self.isig.len() != 0 {
-            match self.isig.remove(0) {
-                Signal::Enable => self.ime = true,
-                Signal::Disable => self.ime = false,
+    fn handle_ic_1(&mut self) {
+        if let Some(ic) = self.ic_1 {
+            match ic {
+                InterruptControl::Enable => self.ime = true,
+                InterruptControl::Disable => self.ime = false,
             }
+            self.ic_1 = None;
         }
     }
 
@@ -2097,13 +2101,9 @@ mod test {
         mem.lock().unwrap().write(cpu.pc, opcode);
         cpu.cycle().unwrap();
 
-        assert_eq!(cpu.isig_prep.len(), 1);
-        assert_eq!(cpu.isig.len(), 0);
         assert!(cpu.ime);
 
         cpu.cycle().unwrap();
-        assert_eq!(cpu.isig_prep.len(), 0);
-        assert_eq!(cpu.isig.len(), 0);
         assert!(!cpu.ime);
     }
 
@@ -2114,13 +2114,9 @@ mod test {
         mem.lock().unwrap().write(cpu.pc, opcode);
         cpu.cycle().unwrap();
 
-        assert_eq!(cpu.isig_prep.len(), 1);
-        assert_eq!(cpu.isig.len(), 0);
         assert!(!cpu.ime);
 
         cpu.cycle().unwrap();
-        assert_eq!(cpu.isig_prep.len(), 0);
-        assert_eq!(cpu.isig.len(), 0);
         assert!(cpu.ime);
     }
 
