@@ -1721,4 +1721,70 @@ mod test {
             assert!(cpu.flag(Flag::C));
         }
     }
+
+    #[test]
+    fn adc_a_r8() {
+        for rrr in 0..=7u8 {
+            let (mut cpu, _) = setup();
+            let opcode = 0b1000_1000 | rrr;
+            let r: R8 = rrr.try_into().unwrap();
+
+            let v1 = 0x3b;
+            let v2 = 0x3b;
+            let cf = 0x01;
+
+            cpu.set_flag(Flag::C);
+            cpu.a.write(v1);
+            cpu.ld_r8(r, v2);
+
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::ADC(r));
+
+            cpu.execute(i);
+            assert_eq!(cpu.a.val(), v1 + v2 + cf);
+
+            if v1 + v2 + cf == 0 {
+                assert!(cpu.flag(Flag::Z));
+            }
+            assert!(!cpu.flag(Flag::N));
+            if bit::check_overflow(v1, v2 + cf, 3) {
+                assert!(cpu.flag(Flag::H));
+            }
+            if bit::check_overflow(v1, v2 + cf, 7) {
+                assert!(cpu.flag(Flag::C));
+            }
+        }
+    }
+
+    #[test]
+    fn adc_a_n8() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11001110;
+
+        let v1 = 0x3b;
+        let v2 = 0x3b;
+        let cf = 1u8;
+
+        cpu.set_flag(Flag::C);
+
+        cpu.a.write(v1);
+        mem.lock().unwrap().write(cpu.pc, v2);
+
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::ADC(R8::N8));
+
+        cpu.execute(i);
+        assert_eq!(cpu.a.val(), v1 + v2 + cf);
+
+        if v1 + v2 + cf == 0 {
+            assert!(cpu.flag(Flag::Z));
+        }
+        assert!(!cpu.flag(Flag::N));
+        if bit::check_overflow(v1, v2 + cf, 3) {
+            assert!(cpu.flag(Flag::H));
+        }
+        if bit::check_overflow(v1, v2 + cf, 7) {
+            assert!(cpu.flag(Flag::C));
+        }
+    }
 }
