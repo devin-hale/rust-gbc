@@ -1572,4 +1572,18 @@ mod test {
         cpu.execute(i);
         assert_eq!(cpu.sp, sp + (val as u16));
     }
+
+    #[test]
+    fn ld_hl_spe() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11111000;
+        let val = 0x11;
+        cpu.sp = 0x00ff;
+        mem.lock().unwrap().write(cpu.pc, val);
+        let sp = cpu.sp;
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::LD(LD::HLSPN));
+        cpu.execute(i);
+        assert_eq!(cpu.hl().val(), sp + (val as u16));
+    }
 }
