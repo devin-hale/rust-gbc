@@ -21,6 +21,11 @@ pub enum Error {
     Unknown,
 }
 
+pub enum InterruptSignal {
+    Enable,
+    Disable,
+}
+
 pub struct CPU {
     a: Register,
     f: Register,
@@ -37,7 +42,9 @@ pub struct CPU {
 
     stop: bool,
     halt: bool,
-    ie: bool,
+
+    isig_prep: Vec<InterruptSignal>,
+    isig: Vec<InterruptSignal>,
     ime: bool,
 }
 
@@ -174,7 +181,8 @@ impl CPU {
             mem: mem.clone(),
             stop: false,
             halt: false,
-            ie: false,
+            isig: vec![],
+            isig_prep: vec![],
             ime: false,
         }
     }
@@ -282,8 +290,8 @@ impl CPU {
     pub fn execute(&mut self, i: Instruction) {
         match i.op() {
             Operation::NOP => {}
-            Operation::DI => self.ie = false,
-            Operation::EI => self.ie = true,
+            Operation::DI => self.di(),
+            Operation::EI => self.ei(),
             Operation::STOP => self.stop = true,
             Operation::HALT => self.halt = true,
             Operation::LD(ld) => {
@@ -344,6 +352,18 @@ impl CPU {
             Operation::OR(r) => self.or(r),
             Operation::CP(r) => self.cp(r),
         }
+    }
+
+    pub fn cycle(&mut self) -> Result<(), Error> {
+        if self.stop || self.halt {
+            return Ok(());
+        }
+        self.handle_isig_prep();
+        let opcode = self.fetch();
+        let i = self.decode(opcode)?;
+        self.execute(i);
+        self.handle_isig();
+        Ok(())
     }
 
     fn jp(&mut self, r: R16) {
@@ -716,7 +736,27 @@ impl CPU {
     }
 
     fn ei(&mut self) {
-        self.ie = true;
+        self.isig_prep.push(InterruptSignal::Enable);
+    }
+
+    fn di(&mut self) {
+        self.isig_prep.push(InterruptSignal::Disable);
+    }
+
+    fn handle_isig_prep(&mut self) {
+        if self.isig_prep.len() != 0 {
+            let sig = self.isig_prep.remove(0);
+            self.isig.push(sig);
+        }
+    }
+
+    fn handle_isig(&mut self) {
+        if self.isig.len() != 0 {
+            match self.isig.remove(0) {
+                InterruptSignal::Enable => self.ime = true,
+                InterruptSignal::Disable => self.ime = false,
+            }
+        }
     }
 
     fn daa(&mut self) {
@@ -1786,5 +1826,42 @@ mod test {
         if bit::check_overflow(v1, v2 + cf, 7) {
             assert!(cpu.flag(Flag::C));
         }
+    }
+
+    // CONTROL INSTRUCTIONS
+
+    #[test]
+    fn di() {
+        let (mut cpu, mem) = setup();
+        cpu.ime = true;
+        let opcode = 0b11110011;
+        mem.lock().unwrap().write(cpu.pc, opcode);
+        cpu.cycle().unwrap();
+
+        assert_eq!(cpu.isig_prep.len(), 1);
+        assert_eq!(cpu.isig.len(), 0);
+        assert!(cpu.ime);
+
+        cpu.cycle().unwrap();
+        assert_eq!(cpu.isig_prep.len(), 0);
+        assert_eq!(cpu.isig.len(), 0);
+        assert!(!cpu.ime);
+    }
+
+    #[test]
+    fn ei() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11111011;
+        mem.lock().unwrap().write(cpu.pc, opcode);
+        cpu.cycle().unwrap();
+
+        assert_eq!(cpu.isig_prep.len(), 1);
+        assert_eq!(cpu.isig.len(), 0);
+        assert!(!cpu.ime);
+
+        cpu.cycle().unwrap();
+        assert_eq!(cpu.isig_prep.len(), 0);
+        assert_eq!(cpu.isig.len(), 0);
+        assert!(cpu.ime);
     }
 }
