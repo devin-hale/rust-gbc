@@ -1062,8 +1062,8 @@ impl CPU {
     }
 
     fn reti(&mut self) {
-        self.ei();
         self.ret();
+        self.ime = true;
     }
 
     fn sla(&mut self, r: R8) {
@@ -2061,6 +2061,26 @@ mod test {
                 assert_ne!(cpu.sp, sp + 2);
             }
         }
+    }
+
+    #[test]
+    fn reti() {
+        let (mut cpu, mem) = setup();
+        let op = 0b1101_1001;
+        let addr = 0xeeee;
+        cpu.sp = addr;
+        let sp = cpu.sp;
+        let val = 0xDEAD;
+        mem.lock().unwrap().write_word(addr, val);
+
+        let i = cpu.decode(op).unwrap();
+        assert_eq!(i.op(), Operation::RETI);
+        cpu.execute(i);
+
+        assert_eq!(cpu.pc, mem.lock().unwrap().read_word(addr));
+        assert_eq!(val, mem.lock().unwrap().read_word(addr));
+        assert_eq!(cpu.sp, sp + 2);
+        assert!(cpu.ime);
     }
 
     // CPU CONTROL INSTRUCTIONS

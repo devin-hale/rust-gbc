@@ -1037,7 +1037,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         }
         // reti
         0b1101_1001 => {
-            i.op = Operation::RET;
+            i.op = Operation::RETI;
             i.length = 1;
             i.cycles = (16, 0);
             return Ok(i);
