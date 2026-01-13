@@ -1625,6 +1625,12 @@ mod test {
             let current = cpu.src_r8(r);
             cpu.execute(i);
             assert_eq!(cpu.src_r8(r), current + 1);
+
+            if current + 1 == 0 {
+                assert!(cpu.flag(Flag::Z));
+            }
+            assert!(!cpu.flag(Flag::N));
+            assert_eq!(cpu.flag(Flag::H), bit::check_overflow(current, 1, 3));
         }
     }
 
@@ -1642,6 +1648,33 @@ mod test {
             let current = cpu.src_r8(r);
             cpu.execute(i);
             assert_eq!(cpu.src_r8(r), current - 1);
+
+            if current + 1 == 0 {
+                assert!(cpu.flag(Flag::Z));
+            }
+            assert!(cpu.flag(Flag::N));
+            assert_eq!(cpu.flag(Flag::H), bit::check_borrow(current, 1, 4));
+        }
+    }
+
+    #[test]
+    fn add_a_r8() {
+        for rrr in 0..=7u8 {
+            let (mut cpu, _) = setup();
+            let opcode = 0b1000_0000 | rrr;
+            let r: R8 = rrr.try_into().unwrap();
+
+            let v1 = 0x3b;
+            let v2 = 0x3b;
+
+            cpu.a.write(v1);
+            cpu.ld_r8(r, v2);
+
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::ADD(ADD::A(r)));
+
+            cpu.execute(i);
+            assert_eq!(cpu.a.val(), v1 + v2);
         }
     }
 }
