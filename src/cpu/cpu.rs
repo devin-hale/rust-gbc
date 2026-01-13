@@ -405,6 +405,8 @@ impl CPU {
     fn jp_cond(&mut self, c: Cond, r: R16) {
         if self.cc(c) {
             self.jp(r)
+        } else {
+            self.fetch_word();
         }
     }
 
@@ -415,6 +417,8 @@ impl CPU {
     fn jr_cond(&mut self, c: Cond, b: u8) {
         if self.cc(c) {
             self.jr(b);
+        } else {
+            self.fetch();
         }
     }
 
@@ -1972,6 +1976,40 @@ mod test {
 
             if cpu.cc(cond) {
                 assert_eq!(cpu.pc, val);
+            }
+        }
+    }
+
+    #[test]
+    fn jr() {
+        let (mut cpu, mem) = setup();
+        let op = 0b00011000;
+        let val = 0x1E;
+        mem.lock().unwrap().write_word(cpu.pc, val);
+
+        let pc = cpu.pc;
+
+        let i = cpu.decode(op).unwrap();
+        assert_eq!(i.op(), Operation::JR(JR::N8));
+        cpu.execute(i);
+
+        assert_eq!(cpu.pc, pc + 1 + val);
+    }
+
+    #[test]
+    fn jr_cond() {
+        for cc in 0..=3u8 {
+            let (mut cpu, mem) = setup();
+            let op = 0b0010_0000 | (cc << 3);
+            let cond: Cond = cc.try_into().unwrap();
+            let val = 0x1E;
+            mem.lock().unwrap().write_word(cpu.pc, val);
+            let pc = cpu.pc;
+            let i = cpu.decode(op).unwrap();
+            assert_eq!(i.op(), Operation::JR(JR::Cond(cond)));
+            cpu.execute(i);
+            if cpu.cc(cond) {
+                assert_eq!(cpu.pc, pc + 1 + val);
             }
         }
     }

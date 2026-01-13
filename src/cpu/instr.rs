@@ -2,6 +2,8 @@ use std::fmt::Display;
 
 use thiserror::Error;
 
+use crate::utils::bit;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("'0x{0:x}' is not a valid R8 value")]
@@ -706,22 +708,19 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
 
         0b000 => {
             let bits_43 = (opcode & 0b0001_1000) >> 3;
-            match bits_43 {
-                // jr n8
-                0b11 => {
-                    i.op = JR::N8.into();
-                    i.length = 2;
-                    i.cycles = (12, 0);
-                    return Ok(i);
-                }
+            if bit::is_set(opcode, 5) {
                 // jr cond, n8
-                _ => {
-                    let c: Cond = bits_43.try_into()?;
-                    i.op = JR::Cond(c).into();
-                    i.length = 2;
-                    i.cycles = (8, 12);
-                    return Ok(i);
-                }
+                let c: Cond = bits_43.try_into()?;
+                i.op = JR::Cond(c).into();
+                i.length = 2;
+                i.cycles = (8, 12);
+                return Ok(i);
+            } else {
+                // jr n8
+                i.op = JR::N8.into();
+                i.length = 2;
+                i.cycles = (12, 0);
+                return Ok(i);
             }
         }
         _ => (),
