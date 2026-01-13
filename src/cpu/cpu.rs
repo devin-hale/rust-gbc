@@ -628,8 +628,8 @@ impl CPU {
             R16::DE | R16::BC | R16::HL => {
                 self.reg_word(r).dec();
             }
-            R16::SP => self.sp += 1,
-            R16::PC => self.pc += 1,
+            R16::SP => self.sp -= 1,
+            R16::PC => self.pc -= 1,
             _ => panic!("attempt to decrement {}", r),
         }
     }
@@ -1515,7 +1515,7 @@ mod test {
 
     #[test]
     fn inc_r16() {
-        for pp in 0..3u8 {
+        for pp in 0..=3u8 {
             let (mut cpu, _) = setup();
             let opcode = 0b0000_0011 | (pp << 4);
             let r: R16 = pp.try_into().unwrap();
@@ -1530,7 +1530,7 @@ mod test {
 
     #[test]
     fn dec_r16() {
-        for pp in 0..3u8 {
+        for pp in 0..=3u8 {
             let (mut cpu, _) = setup();
             let opcode = 0b0000_1011 | (pp << 4);
             let r: R16 = pp.try_into().unwrap();
@@ -1545,7 +1545,7 @@ mod test {
 
     #[test]
     fn add_hl_r16() {
-        for pp in 0..3u8 {
+        for pp in 0..=3u8 {
             let (mut cpu, _) = setup();
             let opcode = 0b0000_1001 | (pp << 4);
             let r: R16 = pp.try_into().unwrap();
@@ -1611,5 +1611,37 @@ mod test {
             cpu.flag(Flag::C),
             bit::check_overflow_word(sp, val as u16, 15)
         );
+    }
+
+    // 8 BIT ALU INSTRUCTIONS
+    #[test]
+    fn inc_r8() {
+        for rrr in 0..=7u8 {
+            let (mut cpu, _) = setup();
+            let opcode = 0b00000100 | (rrr << 3);
+            let r: R8 = rrr.try_into().unwrap();
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::INC(INC::R8(r)));
+            let current = cpu.src_r8(r);
+            cpu.execute(i);
+            assert_eq!(cpu.src_r8(r), current + 1);
+        }
+    }
+
+    #[test]
+    fn dec_r8() {
+        for rrr in 0..=7u8 {
+            let (mut cpu, _) = setup();
+            let opcode = 0b00000101 | (rrr << 3);
+            let r: R8 = rrr.try_into().unwrap();
+            let val = 0xde;
+            cpu.ld_r8(r, val);
+
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::DEC(DEC::R8(r)));
+            let current = cpu.src_r8(r);
+            cpu.execute(i);
+            assert_eq!(cpu.src_r8(r), current - 1);
+        }
     }
 }
