@@ -1049,7 +1049,9 @@ impl CPU {
     }
 
     fn ret(&mut self) {
-        self.pc = self.sp;
+        let addr = self.sp;
+        let val = self.mem().read_word(addr);
+        self.pc = val;
         self.sp += 2;
     }
 
@@ -2010,6 +2012,53 @@ mod test {
             cpu.execute(i);
             if cpu.cc(cond) {
                 assert_eq!(cpu.pc, pc + 1 + val);
+            }
+        }
+    }
+
+    #[test]
+    fn ret() {
+        let (mut cpu, mem) = setup();
+        let op = 0b1100_1001;
+        let addr = 0xeeee;
+        cpu.sp = addr;
+        let sp = cpu.sp;
+        let val = 0xDEAD;
+        mem.lock().unwrap().write_word(addr, val);
+
+        let i = cpu.decode(op).unwrap();
+        assert_eq!(i.op(), Operation::RET);
+        cpu.execute(i);
+
+        assert_eq!(cpu.pc, mem.lock().unwrap().read_word(addr));
+        assert_eq!(val, mem.lock().unwrap().read_word(addr));
+        assert_eq!(cpu.sp, sp + 2);
+    }
+
+    #[test]
+    fn ret_cond() {
+        for cc in 0..=3u8 {
+            let cond: Cond = cc.try_into().unwrap();
+            let (mut cpu, mem) = setup();
+            let op = 0b1100_0000 | (cc << 3);
+            let addr = 0xeeee;
+            cpu.sp = addr;
+            let sp = cpu.sp;
+            let val = 0xDEAD;
+            mem.lock().unwrap().write_word(addr, val);
+
+            let i = cpu.decode(op).unwrap();
+            assert_eq!(i.op(), Operation::RETC(cond));
+            cpu.execute(i);
+
+            if cpu.cc(cond) {
+                assert_eq!(cpu.pc, mem.lock().unwrap().read_word(addr));
+                assert_eq!(cpu.pc, val);
+                assert_eq!(cpu.sp, sp + 2);
+            } else {
+                assert_ne!(cpu.pc, mem.lock().unwrap().read_word(addr));
+                assert_ne!(cpu.pc, val);
+                assert_ne!(cpu.sp, sp + 2);
             }
         }
     }
