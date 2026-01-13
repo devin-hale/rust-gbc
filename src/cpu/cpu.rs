@@ -1692,4 +1692,33 @@ mod test {
             }
         }
     }
+
+    #[test]
+    fn add_a_n8() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11000110;
+
+        let v1 = 0x3b;
+        let v2 = 0x3b;
+
+        cpu.a.write(v1);
+        mem.lock().unwrap().write(cpu.pc, v2);
+
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::ADD(ADD::A(R8::N8)));
+
+        cpu.execute(i);
+        assert_eq!(cpu.a.val(), v1 + v2);
+
+        if v1 + v2 == 0 {
+            assert!(cpu.flag(Flag::Z));
+        }
+        assert!(!cpu.flag(Flag::N));
+        if bit::check_overflow(v1, v2, 3) {
+            assert!(cpu.flag(Flag::H));
+        }
+        if bit::check_overflow(v1, v2, 7) {
+            assert!(cpu.flag(Flag::C));
+        }
+    }
 }
