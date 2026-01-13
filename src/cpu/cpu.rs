@@ -1234,6 +1234,8 @@ mod test {
         assert_eq!(i.op(), Operation::HALT);
     }
 
+    // LOAD INSTRUCTIONS
+
     #[test]
     fn ld_r_s() {
         for r in 0b000..=0b111 {
@@ -1507,5 +1509,37 @@ mod test {
         cpu.execute(i);
 
         assert_eq!(cpu.sp, word);
+    }
+
+    // 16 BIT ARITHMETIC INSTRUCTIONS
+
+    #[test]
+    fn inc_r16() {
+        for pp in 0..3u8 {
+            let (mut cpu, _) = setup();
+            let opcode = 0b0000_0011 | (pp << 4);
+            let r: R16 = pp.try_into().unwrap();
+
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::INC(INC::R16(r)));
+            let current = cpu.src_r16(r);
+            cpu.execute(i);
+            assert_eq!(cpu.src_r16(r), current + 1);
+        }
+    }
+
+    #[test]
+    fn dec_r16() {
+        for pp in 0..3u8 {
+            let (mut cpu, _) = setup();
+            let opcode = 0b0000_1011 | (pp << 4);
+            let r: R16 = pp.try_into().unwrap();
+            let val = 0xffee;
+            cpu.ld_r16(r, val);
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::DEC(DEC::R16(r)));
+            cpu.execute(i);
+            assert_eq!(cpu.src_r16(r), val - 1);
+        }
     }
 }
