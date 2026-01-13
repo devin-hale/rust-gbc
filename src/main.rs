@@ -12,5 +12,5 @@ use memory::Memory;
 fn main() {
     let mem = Arc::new(Mutex::new(Memory::new()));
     #[allow(unused_variables)]
-    let cpu = CPU::new(mem);
+    let cpu = CPU::new(&mem);
 }

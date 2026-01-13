@@ -4,21 +4,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Decoding error: {0}")]
-    Decode(DecodeError),
-
-    #[error("unknown")]
-    Unknown,
-}
-
-impl From<DecodeError> for Error {
-    fn from(value: DecodeError) -> Self {
-        Error::Decode(value)
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum DecodeError {
     #[error("'0x{0:x}' is not a valid R8 value")]
     InvalidR8(u8),
 
@@ -33,6 +18,9 @@ pub enum DecodeError {
 
     #[error("'0x{0:x}' is not a valid Cond value")]
     InvalidCond(u8),
+
+    #[error("invalid opcode: 0x{0:x}")]
+    InvalidOpCode(u8),
 
     #[error("opcode '0x{0:x}' is unimplemented")]
     Unimplemented(u8),
@@ -133,7 +121,7 @@ impl TryFrom<u8> for R8 {
             5 => Ok(R8::L),
             6 => Ok(R8::HL),
             7 => Ok(R8::A),
-            _ => Err(DecodeError::InvalidR8(value).into()),
+            _ => Err(Error::InvalidR8(value)),
         }
     }
 }
@@ -176,7 +164,7 @@ impl Mem {
             1 => Ok(Mem::DE),
             2 => Ok(Mem::HLI),
             3 => Ok(Mem::HLD),
-            _ => Err(DecodeError::InvalidR16Mem(value).into()),
+            _ => Err(Error::InvalidR16Mem(value).into()),
         }
     }
 }
@@ -211,13 +199,13 @@ pub enum R16 {
 }
 
 impl R16 {
-    fn r16stk(v: u8) -> Result<R16, Error> {
+    pub fn r16stk(v: u8) -> Result<R16, Error> {
         match v {
             0 => Ok(R16::BC),
             1 => Ok(R16::DE),
             2 => Ok(R16::HL),
             3 => Ok(R16::AF),
-            _ => Err(DecodeError::InvalidR16Stk(v).into()),
+            _ => Err(Error::InvalidR16Stk(v).into()),
         }
     }
 }
@@ -230,7 +218,7 @@ impl TryFrom<u8> for R16 {
             1 => Ok(R16::DE),
             2 => Ok(R16::HL),
             3 => Ok(R16::SP),
-            _ => Err(DecodeError::InvalidR16(value).into()),
+            _ => Err(Error::InvalidR16(value).into()),
         }
     }
 }
@@ -266,7 +254,7 @@ impl TryFrom<u8> for Cond {
             1 => Ok(Cond::Z),
             2 => Ok(Cond::NC),
             3 => Ok(Cond::C),
-            _ => Err(DecodeError::InvalidCond(value).into()),
+            _ => Err(Error::InvalidCond(value).into()),
         }
     }
 }
@@ -585,19 +573,12 @@ impl Display for JR {
 }
 
 pub fn decode(opcode: u8) -> Result<Instruction, Error> {
-    match (opcode >> 6) & 0x3 {
-        0x00 => Ok(decode_block_0(opcode)?),
-        0x01 => Ok(decode_block_1(opcode)?),
-        0x10 => Ok(decode_block_2(opcode)?),
-        //0x11 => {
-        //    let i = decode_block_3(opcode)?;
-        //    if i.op == Operation::PREFIX {
-        //        return Ok(decode_prefix(opcode)?);
-        //    } else {
-        //        return Ok(i);
-        //    }
-        //}
-        _ => Err(Error::Unknown),
+    match (opcode >> 6) & 0b11 {
+        0b00 => Ok(decode_block_0(opcode)?),
+        0b01 => Ok(decode_block_1(opcode)?),
+        0b10 => Ok(decode_block_2(opcode)?),
+        0b11 => Ok(decode_block_3(opcode)?),
+        _ => Err(Error::Unimplemented(opcode)),
     }
 }
 
@@ -797,7 +778,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         _ => (),
     }
 
-    Err(DecodeError::Unimplemented(opcode).into())
+    Err(Error::Unimplemented(opcode))
 }
 
 fn decode_block_1(opcode: u8) -> Result<Instruction, Error> {
@@ -809,8 +790,8 @@ fn decode_block_1(opcode: u8) -> Result<Instruction, Error> {
         });
     } else {
         // ld r8, r8
-        let dest: R8 = ((opcode & 0b0011_1000) >> 4).try_into()?;
-        let src: R8 = ((opcode & 0b0000_0111) >> 4).try_into()?;
+        let dest: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
+        let src: R8 = (opcode & 0b0000_0111).try_into()?;
         let mut i = Instruction::new();
         i.length = 1;
         if dest == R8::HL {
@@ -880,7 +861,7 @@ fn decode_block_2(opcode: u8) -> Result<Instruction, Error> {
         _ => (),
     }
 
-    Err(Error::Unknown)
+    Err(Error::Unimplemented(opcode))
 }
 
 const INVALID_OPCODES: [u8; 11] = [
@@ -948,135 +929,135 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
             }
             _ => (),
         }
+    }
 
-        match opcode {
-            // ldh [c], a
-            0b1110_0010 => {
-                i.op = LDH::Mem(Mem::C).into();
-                i.length = 1;
-                i.cycles = (8, 0);
-                return Ok(i);
-            }
-
-            // ldh [imm8], a
-            0b1110_0000 => {
-                i.op = LDH::Mem(Mem::N8).into();
-                i.length = 2;
-                i.cycles = (12, 0);
-                return Ok(i);
-            }
-
-            // ld [imm16], a
-            0b1110_1010 => {
-                i.op = LD::MemR8(Mem::N16, R8::A).into();
-                i.length = 3;
-                i.cycles = (16, 0);
-                return Ok(i);
-            }
-
-            // ldh a, [c]
-            0b1111_0010 => {
-                i.op = LDH::A(Mem::C).into();
-                i.length = 1;
-                i.cycles = (8, 0);
-                return Ok(i);
-            }
-
-            // ldh a, [imm8]
-            0b1111_0000 => {
-                i.op = LDH::A(Mem::N8).into();
-                i.length = 2;
-                i.cycles = (12, 0);
-                return Ok(i);
-            }
-
-            // ld a, [imm16]
-            0b1111_1010 => {
-                i.op = LD::R8Mem(R8::A, Mem::N16).into();
-                i.length = 3;
-                i.cycles = (16, 0);
-                return Ok(i);
-            }
-
-            // add sp, imm8
-            0b1110_1000 => {
-                i.op = ADD::SP.into();
-                i.length = 2;
-                i.cycles = (16, 0);
-                return Ok(i);
-            }
-
-            // ld hl, sp + e8
-            0b1111_1000 => {
-                i.op = LD::HLSPN.into();
-                i.length = 2;
-                i.cycles = (12, 0);
-                return Ok(i);
-            }
-
-            // ld sp, hl
-            0b1111_1001 => {
-                i.op = LD::R16(R16::SP, R16::HL).into();
-                i.length = 1;
-                i.cycles = (8, 0);
-                return Ok(i);
-            }
-
-            // di
-            0b1111_0011 => {
-                i.op = Operation::DI;
-                i.length = 1;
-                i.cycles = (4, 0);
-                return Ok(i);
-            }
-
-            // ei
-            0b1111_1011 => {
-                i.op = Operation::EI;
-                i.length = 1;
-                i.cycles = (4, 0);
-                return Ok(i);
-            }
-
-            // ret
-            0b1100_1001 => {
-                i.op = Operation::RET;
-                i.length = 1;
-                i.cycles = (16, 0);
-                return Ok(i);
-            }
-            // reti
-            0b1101_1001 => {
-                i.op = Operation::RET;
-                i.length = 1;
-                i.cycles = (16, 0);
-                return Ok(i);
-            }
-
-            // jp n16
-            0b1100_0011 => {
-                i.op = Operation::JP(R16::N16);
-                i.length = 3;
-                i.cycles = (16, 0);
-                return Ok(i);
-            }
-            // jp hl
-            0b1110_1001 => {
-                i.op = Operation::JP(R16::HL);
-                i.length = 3;
-                i.cycles = (16, 0);
-                return Ok(i);
-            }
-
-            // call imm16
-            0b1100_1101 => {
-                i.op = Operation::CALL;
-                i.length = 3;
-                i.cycles = (24, 0);
-                return Ok(i);
-            }
-            _ => (),
+    match opcode {
+        // ldh [c], a
+        0b1110_0010 => {
+            i.op = LDH::Mem(Mem::C).into();
+            i.length = 1;
+            i.cycles = (8, 0);
+            return Ok(i);
         }
+
+        // ldh [imm8], a
+        0b1110_0000 => {
+            i.op = LDH::Mem(Mem::N8).into();
+            i.length = 2;
+            i.cycles = (12, 0);
+            return Ok(i);
+        }
+
+        // ld [imm16], a
+        0b1110_1010 => {
+            i.op = LD::MemR8(Mem::N16, R8::A).into();
+            i.length = 3;
+            i.cycles = (16, 0);
+            return Ok(i);
+        }
+
+        // ldh a, [c]
+        0b1111_0010 => {
+            i.op = LDH::A(Mem::C).into();
+            i.length = 1;
+            i.cycles = (8, 0);
+            return Ok(i);
+        }
+
+        // ldh a, [imm8]
+        0b1111_0000 => {
+            i.op = LDH::A(Mem::N8).into();
+            i.length = 2;
+            i.cycles = (12, 0);
+            return Ok(i);
+        }
+
+        // ld a, [imm16]
+        0b1111_1010 => {
+            i.op = LD::R8Mem(R8::A, Mem::N16).into();
+            i.length = 3;
+            i.cycles = (16, 0);
+            return Ok(i);
+        }
+
+        // add sp, imm8
+        0b1110_1000 => {
+            i.op = ADD::SP.into();
+            i.length = 2;
+            i.cycles = (16, 0);
+            return Ok(i);
+        }
+
+        // ld hl, sp + e8
+        0b1111_1000 => {
+            i.op = LD::HLSPN.into();
+            i.length = 2;
+            i.cycles = (12, 0);
+            return Ok(i);
+        }
+
+        // ld sp, hl
+        0b1111_1001 => {
+            i.op = LD::R16(R16::SP, R16::HL).into();
+            i.length = 1;
+            i.cycles = (8, 0);
+            return Ok(i);
+        }
+
+        // di
+        0b1111_0011 => {
+            i.op = Operation::DI;
+            i.length = 1;
+            i.cycles = (4, 0);
+            return Ok(i);
+        }
+
+        // ei
+        0b1111_1011 => {
+            i.op = Operation::EI;
+            i.length = 1;
+            i.cycles = (4, 0);
+            return Ok(i);
+        }
+
+        // ret
+        0b1100_1001 => {
+            i.op = Operation::RET;
+            i.length = 1;
+            i.cycles = (16, 0);
+            return Ok(i);
+        }
+        // reti
+        0b1101_1001 => {
+            i.op = Operation::RET;
+            i.length = 1;
+            i.cycles = (16, 0);
+            return Ok(i);
+        }
+
+        // jp n16
+        0b1100_0011 => {
+            i.op = Operation::JP(R16::N16);
+            i.length = 3;
+            i.cycles = (16, 0);
+            return Ok(i);
+        }
+        // jp hl
+        0b1110_1001 => {
+            i.op = Operation::JP(R16::HL);
+            i.length = 3;
+            i.cycles = (16, 0);
+            return Ok(i);
+        }
+
+        // call imm16
+        0b1100_1101 => {
+            i.op = Operation::CALL;
+            i.length = 3;
+            i.cycles = (24, 0);
+            return Ok(i);
+        }
+        _ => (),
     }
 
     let last_three = opcode & 0b111;

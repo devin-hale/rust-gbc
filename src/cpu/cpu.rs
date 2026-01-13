@@ -5,13 +5,18 @@ use std::{
 
 use thiserror::Error;
 
-use super::instructions::{
-    self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3,
+use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3};
+use crate::{
+    cpu::instr::{Error as IError, JR, LDH, decode},
+    memory::{self, Memory},
+    utils::bit,
 };
-use crate::{memory::Memory, utils::bit};
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Instruction error")]
+    InstructionError(#[from] IError),
+
     #[error("CPU: unknown error")]
     Unknown,
 }
@@ -36,6 +41,27 @@ pub struct CPU {
     ime: bool,
 }
 
+#[derive(PartialEq, Eq)]
+pub struct State {
+    a: u8,
+    f: u8,
+    b: u8,
+    c: u8,
+    d: u8,
+    e: u8,
+    h: u8,
+    l: u8,
+    sp: u16,
+    pc: u16,
+
+    mem: Vec<memory::State>,
+
+    stop: bool,
+    halt: bool,
+    ie: bool,
+    ime: bool,
+}
+
 #[derive(Clone, Copy)]
 pub enum Flag {
     Z,
@@ -49,6 +75,9 @@ struct Register(u8);
 impl Register {
     pub fn new() -> Register {
         Register(0)
+    }
+    pub fn with_val(v: u8) -> Register {
+        Register(v)
     }
     pub fn val(&self) -> u8 {
         self.0
@@ -130,19 +159,19 @@ impl<'r> Word<'r> {
 }
 
 impl CPU {
-    pub fn new(mem: Arc<Mutex<Memory>>) -> CPU {
+    pub fn new(mem: &Arc<Mutex<Memory>>) -> CPU {
         CPU {
-            a: Register::new(),
-            f: Register::new(),
-            b: Register::new(),
-            c: Register::new(),
-            d: Register::new(),
-            e: Register::new(),
-            h: Register::new(),
-            l: Register::new(),
-            sp: 0,
-            pc: 0,
-            mem,
+            a: Register::with_val(0x00),
+            f: Register::with_val(0b1000_0000),
+            b: Register::with_val(0x00),
+            c: Register::with_val(0x13),
+            d: Register::with_val(0x00),
+            e: Register::with_val(0xD8),
+            h: Register::with_val(0x01),
+            l: Register::with_val(0x4D),
+            sp: 0xFFFE,
+            pc: 0x0100,
+            mem: mem.clone(),
             stop: false,
             halt: false,
             ie: false,
@@ -192,6 +221,14 @@ impl CPU {
             Flag::C => self.f.bit(4),
         };
         b == 1
+    }
+
+    pub fn sp(&self) -> u16 {
+        self.sp
+    }
+
+    pub fn pc(&self) -> u16 {
+        self.pc
     }
 
     pub fn cf(&self) -> bool {
@@ -246,9 +283,9 @@ impl CPU {
         (high << 8) | low
     }
 
-    //pub fn decode(&self) -> Instruction {
-    //    Instruction::new()
-    //}
+    pub fn decode(&self, opcode: u8) -> Result<Instruction, Error> {
+        Ok(decode(opcode)?)
+    }
 
     pub fn execute(&mut self, i: Instruction) {
         match i.op() {
@@ -260,18 +297,60 @@ impl CPU {
             Operation::LD(ld) => {
                 self.ld(ld).unwrap();
             }
+            Operation::SLA(r) => self.sla(r),
+            Operation::SRA(r) => self.sra(r),
+            Operation::SWAP(r) => self.swap(r),
+            Operation::SRL(r) => self.srl(r),
+            Operation::BIT(b, r) => self.bit(b, r),
+            Operation::SET(b, r) => self.set(b, r),
+            Operation::RES(b, r) => self.res(b, r),
+            Operation::PREFIX => {}
             Operation::INC(inc) => self.inc(inc),
             Operation::DEC(dec) => self.dec(dec),
             Operation::ADD(add) => self.add(add),
             Operation::ADC(r) => self.adc(r),
             Operation::RLCA => self.rlc(R8::A),
+            Operation::RLC(r) => self.rlc(r),
             Operation::RRCA => self.rrc(R8::A),
+            Operation::RRC(r) => self.rrc(r),
             Operation::RLA => self.rl(R8::A),
+            Operation::RL(r) => self.rl(r),
             Operation::RRA => self.rr(R8::A),
+            Operation::RR(r) => self.rr(r),
             Operation::DAA => self.daa(),
             Operation::CPL => self.cpl(),
             Operation::SCF => self.scf(),
-            _ => (),
+            Operation::CCF => self.ccf(),
+            Operation::JP(r) => self.jp(r),
+            Operation::JPC(c, r) => self.jp_cond(c, r),
+            Operation::CALL => self.call(),
+            Operation::CALLC(c) => self.call_cond(c),
+            Operation::RST(t) => self.rst(t),
+            Operation::POP(r) => self.pop(r),
+            Operation::PUSH(r) => {
+                let v = self.src_r16(r);
+                self.push(v);
+            }
+            Operation::LDH(ldh) => match ldh {
+                LDH::A(r) => self.ldh_a(r),
+                LDH::Mem(r) => self.ldh_m(r),
+            },
+            Operation::JR(jr) => {
+                let v = self.fetch();
+                match jr {
+                    JR::Cond(c) => self.jr_cond(c, v),
+                    JR::N8 => self.jr(v),
+                }
+            }
+            Operation::RET => self.ret(),
+            Operation::RETI => self.reti(),
+            Operation::RETC(c) => self.ret_cond(c),
+            Operation::SUB(r) => self.sub(r),
+            Operation::SBC(r) => self.sbc(r),
+            Operation::AND(r) => self.and(r),
+            Operation::XOR(r) => self.xor(r),
+            Operation::OR(r) => self.or(r),
+            Operation::CP(r) => self.cp(r),
         }
     }
 
@@ -320,7 +399,7 @@ impl CPU {
         self.pc = val as u16;
     }
 
-    fn pop(&mut self, r: R16) {
+    pub fn pop(&mut self, r: R16) {
         let sp = self.sp;
         self.sp += 2;
         let mut val = self.mem().read_word(sp);
@@ -330,7 +409,7 @@ impl CPU {
         self.ld_r16(r, val)
     }
 
-    fn push(&mut self, v: u16) {
+    pub fn push(&mut self, v: u16) {
         self.sp -= 2;
         let sp = self.sp;
         self.mem().write_word(sp, v);
@@ -403,10 +482,11 @@ impl CPU {
         }
     }
 
-    fn ld_r16(&mut self, r: R16, v: u16) {
+    pub fn ld_r16(&mut self, r: R16, v: u16) {
         match r {
             R16::HL => self.hl().write(v),
             R16::BC => self.bc().write(v),
+            R16::DE => self.de().write(v),
             R16::SP => self.sp = v,
             R16::AF => self.af().write(v),
             R16::N16 => panic!("attempt to load to n16 value"),
@@ -415,7 +495,7 @@ impl CPU {
         }
     }
 
-    fn ld_r8(&mut self, r: R8, v: u8) {
+    pub fn ld_r8(&mut self, r: R8, v: u8) {
         match r {
             R8::A => self.a.write(v),
             R8::B => self.b.write(v),
@@ -448,7 +528,7 @@ impl CPU {
         }
     }
 
-    fn src_r8(&mut self, r: R8) -> u8 {
+    pub fn src_r8(&mut self, r: R8) -> u8 {
         match r {
             R8::N8 => self.fetch(),
             R8::A => self.a.val(),
@@ -465,7 +545,7 @@ impl CPU {
         }
     }
 
-    fn src_r16(&mut self, r: R16) -> u16 {
+    pub fn src_r16(&mut self, r: R16) -> u16 {
         match r {
             R16::HL => self.hl().val(),
             R16::BC => self.bc().val(),
@@ -876,21 +956,21 @@ impl CPU {
         }
     }
 
-    fn ldh_a(&mut self, m: instructions::Mem) {
+    fn ldh_a(&mut self, m: instr::Mem) {
         let addr = match m {
-            instructions::Mem::C => (self.c.val() as u16) + 0xFF00,
-            instructions::Mem::N8 => (self.fetch() as u16) + 0xFF00,
+            instr::Mem::C => (self.c.val() as u16) + 0xFF00,
+            instr::Mem::N8 => (self.fetch() as u16) + 0xFF00,
             _ => panic!("invalid ldh destination operation"),
         };
         let val = self.mem().read(addr);
         self.a.write(val);
     }
 
-    fn ldh_m(&mut self, m: instructions::Mem) {
+    fn ldh_m(&mut self, m: instr::Mem) {
         let a = self.a.val();
         let addr = match m {
-            instructions::Mem::C => (self.c.val() as u16) + 0xFF00,
-            instructions::Mem::N8 => (self.fetch() as u16) + 0xFF00,
+            instr::Mem::C => (self.c.val() as u16) + 0xFF00,
+            instr::Mem::N8 => (self.fetch() as u16) + 0xFF00,
             _ => panic!("invalid ldh destination operation"),
         };
         self.mem().write(addr, a);
@@ -1000,32 +1080,35 @@ mod test {
 
     #[test]
     fn fetch() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        mem.lock().unwrap().write(0x00, 0xCC);
-        let expected = 0xCC;
-
-        let mut cpu = CPU::new(mem);
+        let mem = Memory::arc();
+        let val = 0xCC;
+        let mut cpu = CPU::new(&mem);
+        mem.lock().unwrap().write(cpu.pc, val);
+        let pc = cpu.pc;
         let fetched = cpu.fetch();
-        assert_eq!(expected, fetched);
-        assert_eq!(cpu.pc, 0x1);
+        assert_eq!(val, fetched);
+        assert_eq!(cpu.pc, pc + 1);
     }
 
     #[test]
     fn fetch_word() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        mem.lock().unwrap().write(0x00, 0xCC);
-        mem.lock().unwrap().write(0x01, 0xDD);
-        let expected_word = 0xDDCC;
-        let mut cpu = CPU::new(mem);
+        let mem = Memory::arc();
+        let mut cpu = CPU::new(&mem);
+        let pc = cpu.pc;
+        let low = 0xCC;
+        let high = 0xDD;
+        let word = 0xDDCC;
+        mem.lock().unwrap().write(pc, low);
+        mem.lock().unwrap().write(pc + 1, high);
         let fetched = cpu.fetch_word();
-        assert_eq!(expected_word, fetched);
-        assert_eq!(cpu.pc, 0x2);
+        assert_eq!(word, fetched);
+        assert_eq!(cpu.pc, pc + 2);
     }
 
     #[test]
     fn jump_relative() {
         let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
+        let mut cpu = CPU::new(&mem);
         let byte = 0xFF;
         let expected = cpu.pc + (byte as u16);
         cpu.jr(byte);
@@ -1034,9 +1117,9 @@ mod test {
 
     #[test]
     fn jump_relative_word() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
-        let word = 0xFF00;
+        let mem = Memory::arc();
+        let mut cpu = CPU::new(&mem);
+        let word = 0x00FF;
         let expected = cpu.pc + word;
         cpu.jr_word(word);
         assert_eq!(cpu.pc, expected);
@@ -1045,7 +1128,7 @@ mod test {
     #[test]
     fn af() {
         let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
+        let mut cpu = CPU::new(&mem);
         let byte = 0b0110_0110;
         let expected = ((byte as u16) << 8) | 0b1000_0000;
         cpu.set_flag(Flag::Z);
@@ -1056,7 +1139,7 @@ mod test {
     #[test]
     fn flag_set() {
         let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
+        let mut cpu = CPU::new(&mem);
         cpu.set_flag(Flag::N);
         assert!(cpu.nf());
     }
@@ -1064,7 +1147,7 @@ mod test {
     #[test]
     fn flag_reset() {
         let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
+        let mut cpu = CPU::new(&mem);
         cpu.set_flag(Flag::N);
         assert!(cpu.nf());
         cpu.reset_flag(Flag::N);
@@ -1073,17 +1156,17 @@ mod test {
 
     #[test]
     fn flag() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
-        assert!(!cpu.flag(Flag::Z));
-        cpu.set_flag(Flag::Z);
-        assert!(cpu.flag(Flag::Z));
+        let mem = Memory::arc();
+        let mut cpu = CPU::new(&mem);
+        assert!(!cpu.flag(Flag::N));
+        cpu.set_flag(Flag::N);
+        assert!(cpu.flag(Flag::N));
     }
 
     #[test]
     fn flag_set_val() {
         let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
+        let mut cpu = CPU::new(&mem);
         let f = Flag::C;
         cpu.set_flag_from_val(f, 1);
         assert!(cpu.cf());
@@ -1093,13 +1176,13 @@ mod test {
 
     #[test]
     fn cc() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(mem);
-        assert!(cpu.cc(Cond::NZ));
-        assert!(cpu.cc(Cond::NC));
-        cpu.set_flag(Flag::Z);
-        cpu.set_flag(Flag::C);
+        let mem = Memory::arc();
+        let mut cpu = CPU::new(&mem);
         assert!(cpu.cc(Cond::Z));
+        assert!(cpu.cc(Cond::NC));
+        cpu.reset_flag(Flag::Z);
+        cpu.set_flag(Flag::C);
+        assert!(cpu.cc(Cond::NZ));
         assert!(cpu.cc(Cond::C));
     }
 

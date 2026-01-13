@@ -1,3 +1,3 @@
 mod cpu;
 pub use cpu::*;
-mod instructions;
+pub mod instr;
