@@ -1493,4 +1493,19 @@ mod test {
         cpu.execute(i);
         assert_eq!(sp, mem.lock().unwrap().read_word(word));
     }
+
+    #[test]
+    fn ld_sp_hl() {
+        let (mut cpu, _) = setup();
+        let opcode = 0b11111001;
+
+        let word = 0xDEAD;
+        cpu.hl().write(word);
+
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::LD(LD::R16(R16::SP, R16::HL)));
+        cpu.execute(i);
+
+        assert_eq!(cpu.sp, word);
+    }
 }
