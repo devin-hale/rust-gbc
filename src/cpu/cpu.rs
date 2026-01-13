@@ -73,39 +73,39 @@ pub enum Flag {
 struct Register(u8);
 
 impl Register {
-    pub fn new() -> Register {
+    fn new() -> Register {
         Register(0)
     }
-    pub fn with_val(v: u8) -> Register {
+    fn with_val(v: u8) -> Register {
         Register(v)
     }
-    pub fn val(&self) -> u8 {
+    fn val(&self) -> u8 {
         self.0
     }
 
-    pub fn write(&mut self, v: u8) {
+    fn write(&mut self, v: u8) {
         self.0 = v
     }
 
-    pub fn inc(&mut self) -> u8 {
+    fn inc(&mut self) -> u8 {
         self.0 += 1;
         self.0
     }
 
-    pub fn dec(&mut self) -> u8 {
+    fn dec(&mut self) -> u8 {
         self.0 -= 1;
         self.0
     }
 
-    pub fn bit(&self, n: u8) -> u8 {
+    fn bit(&self, n: u8) -> u8 {
         bit::get(self.0, n)
     }
 
-    pub fn bit_set(&mut self, n: u8) {
+    fn bit_set(&mut self, n: u8) {
         bit::set(&mut self.0, n);
     }
 
-    pub fn bit_reset(&mut self, n: u8) {
+    fn bit_reset(&mut self, n: u8) {
         bit::reset(&mut self.0, n);
     }
 }
@@ -197,7 +197,7 @@ impl CPU {
         }
     }
 
-    pub fn set_flag_from_val(&mut self, f: Flag, v: u8) {
+    fn set_flag_from_val(&mut self, f: Flag, v: u8) {
         if (v & 1) == 1 {
             self.set_flag(f);
         } else {
@@ -205,7 +205,7 @@ impl CPU {
         }
     }
 
-    pub fn invert_flag(&mut self, f: Flag) {
+    fn invert_flag(&mut self, f: Flag) {
         if self.flag(f) {
             self.reset_flag(f);
         } else {
@@ -213,7 +213,7 @@ impl CPU {
         }
     }
 
-    pub fn flag(&self, f: Flag) -> bool {
+    fn flag(&self, f: Flag) -> bool {
         let b = match f {
             Flag::Z => self.f.bit(7),
             Flag::N => self.f.bit(6),
@@ -221,14 +221,6 @@ impl CPU {
             Flag::C => self.f.bit(4),
         };
         b == 1
-    }
-
-    pub fn sp(&self) -> u16 {
-        self.sp
-    }
-
-    pub fn pc(&self) -> u16 {
-        self.pc
     }
 
     pub fn cf(&self) -> bool {
@@ -459,7 +451,7 @@ impl CPU {
         Ok(())
     }
 
-    fn mem_addr(&mut self, m: Mem) -> u16 {
+    pub fn mem_addr(&mut self, m: Mem) -> u16 {
         match m {
             Mem::HL => self.hl().val(),
             Mem::BC => self.bc().val(),
@@ -969,8 +961,8 @@ impl CPU {
     fn ldh_m(&mut self, m: instr::Mem) {
         let a = self.a.val();
         let addr = match m {
-            instr::Mem::C => (self.c.val() as u16) + 0xFF00,
-            instr::Mem::N8 => (self.fetch() as u16) + 0xFF00,
+            instr::Mem::C => (self.c.val() as u16) | 0xFF00,
+            instr::Mem::N8 => (self.fetch() as u16) | 0xFF00,
             _ => panic!("invalid ldh destination operation"),
         };
         self.mem().write(addr, a);
@@ -1226,5 +1218,279 @@ mod test {
         assert_eq!(expected_word, w.val());
         assert_eq!(l.0, low_val);
         assert_eq!(h.0, high_val);
+    }
+
+    fn setup() -> (CPU, Arc<Mutex<Memory>>) {
+        let mem = Memory::arc();
+        let cpu = CPU::new(&mem);
+        (cpu, mem)
+    }
+
+    #[test]
+    fn halt() {
+        let opcode = 0b0111_0110;
+        let (cpu, _) = setup();
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::HALT);
+    }
+
+    #[test]
+    fn ld_r_s() {
+        for r in 0b000..=0b111 {
+            for s in 0b000..=0b111 {
+                let opcode = 0b0100_0000 | (r << 3) | s;
+                let (mut cpu, _) = setup();
+                let i = cpu.decode(opcode).unwrap();
+                let a: R8 = r.try_into().unwrap();
+                let b: R8 = s.try_into().unwrap();
+
+                if a == R8::HL && b == R8::HL {
+                    assert_eq!(i.op(), Operation::HALT);
+                    continue;
+                } else if a == R8::HL {
+                    assert_eq!(i.op(), Operation::LD(LD::MemR8(Mem::HL, b)));
+                } else if b == R8::HL {
+                    assert_eq!(i.op(), Operation::LD(LD::R8Mem(a, Mem::HL)));
+                } else {
+                    assert_eq!(i.op(), Operation::LD(LD::R8(a, b)));
+                }
+
+                let val = 0xfe;
+                cpu.ld_r8(b, val);
+                cpu.execute(i);
+                assert_eq!(cpu.src_r8(a), val);
+            }
+        }
+        setup();
+    }
+
+    #[test]
+    fn push() {
+        for qq in 0..=3u8 {
+            // 11qq0101
+            let (mut cpu, mem) = setup();
+            let opcode = 0b1100_0101 | (qq << 4);
+
+            mem.lock().unwrap().write(cpu.pc, opcode);
+            let fetched = cpu.fetch();
+            assert_eq!(fetched, opcode);
+
+            let r = R16::r16stk(qq).unwrap();
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::PUSH(r));
+
+            let val = 0xfe;
+            cpu.ld_r16(r, val);
+            assert_eq!(cpu.src_r16(r), val);
+
+            let sp = cpu.sp;
+            cpu.execute(i);
+            assert_eq!(mem.lock().unwrap().read_word(cpu.sp), val);
+            assert_eq!(cpu.sp, sp - 2);
+        }
+    }
+
+    #[test]
+    fn pop() {
+        for qq in 0..=3u8 {
+            // 11qq0001
+            let (mut cpu, mem) = setup();
+            let opcode = 0b1100_0001 | (qq << 4);
+
+            mem.lock().unwrap().write(cpu.pc, opcode);
+            let fetched = cpu.fetch();
+            assert_eq!(fetched, opcode);
+
+            let r = R16::r16stk(qq).unwrap();
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::POP(r));
+
+            let val = 0xDEAD;
+            cpu.push(val);
+
+            let sp = cpu.sp;
+            cpu.execute(i);
+            let r16 = cpu.src_r16(r);
+            if r == R16::AF {
+                assert_eq!(r16, val & 0xFFF0);
+            } else {
+                assert_eq!(r16, val);
+            }
+            assert_eq!(cpu.sp, sp + 2);
+        }
+    }
+
+    #[test]
+    fn ld_mem16() {
+        for x in 0..=1 {
+            for rr in 0..=3u8 {
+                let (mut cpu, mem) = setup();
+                // 0b00rr_x010
+                let opcode = 0b0000_0010 | (rr << 4) | (x << 3);
+                let r = Mem::r16mem(rr).unwrap();
+                let i = cpu.decode(opcode).unwrap();
+                if x == 1 {
+                    assert_eq!(i.op(), Operation::LD(LD::R8Mem(R8::A, r)));
+
+                    let val = 0xFE;
+                    let addr;
+                    if r == Mem::HLI || r == Mem::HLD {
+                        addr = cpu.hl().val();
+                    } else {
+                        addr = cpu.mem_addr(r);
+                    }
+                    mem.lock().unwrap().write(addr, val);
+                    assert_eq!(val, mem.lock().unwrap().read(addr));
+
+                    cpu.execute(i);
+                    assert_eq!(cpu.a.val(), val);
+                } else {
+                    assert_eq!(i.op(), Operation::LD(LD::MemR8(r, R8::A)));
+
+                    let val = 0xFE;
+                    cpu.a.write(val);
+                    let addr;
+                    if r == Mem::HLI || r == Mem::HLD {
+                        addr = cpu.hl().val();
+                    } else {
+                        addr = cpu.mem_addr(r);
+                    }
+                    cpu.execute(i);
+                    assert_eq!(mem.lock().unwrap().read(addr), val);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ld_mem_n16_a() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11101010;
+
+        let addr = 0xDEAD;
+        let val = 0xFE;
+        mem.lock().unwrap().write_word(cpu.pc, addr);
+        cpu.a.write(val);
+
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::LD(LD::MemR8(Mem::N16, R8::A)));
+
+        cpu.execute(i);
+        assert_eq!(mem.lock().unwrap().read(addr), val);
+    }
+
+    #[test]
+    fn ld_a_mem_n16() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11111010;
+
+        let addr = 0xDEAD;
+        let val = 0xFE;
+        mem.lock().unwrap().write_word(cpu.pc, addr);
+        mem.lock().unwrap().write(addr, val);
+
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::LD(LD::R8Mem(R8::A, Mem::N16)));
+
+        cpu.execute(i);
+        assert_eq!(cpu.a.val(), val);
+    }
+
+    #[test]
+    fn ldh_n8_a() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11100000;
+
+        let addr = 0xDE;
+        let val = 0xFE;
+        mem.lock().unwrap().write(cpu.pc, addr);
+        cpu.a.write(val);
+
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::LDH(LDH::Mem(Mem::N8)));
+
+        cpu.execute(i);
+        assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), val);
+    }
+
+    #[test]
+    fn ldh_a_n8() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11110000;
+
+        let addr = 0xDE;
+        let val = 0xFE;
+        mem.lock().unwrap().write(cpu.pc, addr);
+        mem.lock().unwrap().write((addr as u16) | 0xFF00, val);
+
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::LDH(LDH::A(Mem::N8)));
+
+        cpu.execute(i);
+        assert_eq!(cpu.a.val(), val);
+    }
+
+    #[test]
+    fn ldh_memc_a() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11100010;
+
+        let addr = 0xDE;
+        let val = 0xFE;
+        cpu.c.write(addr);
+        cpu.a.write(val);
+
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::LDH(LDH::Mem(Mem::C)));
+
+        cpu.execute(i);
+        assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), val);
+    }
+
+    #[test]
+    fn ldh_a_memc() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b11110010;
+
+        let addr = 0xDE;
+        let val = 0xFE;
+        cpu.c.write(addr);
+        mem.lock().unwrap().write((addr as u16) | 0xFF00, val);
+
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::LDH(LDH::A(Mem::C)));
+
+        cpu.execute(i);
+        assert_eq!(cpu.a.val(), val);
+    }
+
+    #[test]
+    fn ld_pp_nn() {
+        for pp in 0..=3u8 {
+            let (mut cpu, mem) = setup();
+            let val = 0xDEAD;
+            mem.lock().unwrap().write_word(cpu.pc, val);
+
+            let r: R16 = pp.try_into().unwrap();
+            let opcode = 0b0000_0001 | (pp << 4);
+            let i = cpu.decode(opcode).unwrap();
+            assert_eq!(i.op(), Operation::LD(LD::R16(r, R16::N16)));
+
+            cpu.execute(i);
+            assert_eq!(cpu.src_r16(r), val);
+        }
+    }
+
+    #[test]
+    fn ld_mem_n16_sp() {
+        let (mut cpu, mem) = setup();
+        let opcode = 0b00001000;
+        let word = 0xDEAD;
+        mem.lock().unwrap().write_word(cpu.pc, word);
+        let i = cpu.decode(opcode).unwrap();
+        assert_eq!(i.op(), Operation::LD(LD::MemR16(Mem::N16, R16::SP)));
+        let sp = cpu.sp;
+        cpu.execute(i);
+        assert_eq!(sp, mem.lock().unwrap().read_word(word));
     }
 }

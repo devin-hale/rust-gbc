@@ -158,7 +158,7 @@ pub enum Mem {
 }
 
 impl Mem {
-    fn r16mem(value: u8) -> Result<Mem, Error> {
+    pub fn r16mem(value: u8) -> Result<Mem, Error> {
         match value {
             0 => Ok(Mem::BC),
             1 => Ok(Mem::DE),
