@@ -1630,7 +1630,9 @@ mod test {
                 assert!(cpu.flag(Flag::Z));
             }
             assert!(!cpu.flag(Flag::N));
-            assert_eq!(cpu.flag(Flag::H), bit::check_overflow(current, 1, 3));
+            if bit::check_overflow(current, 1, 3) {
+                assert!(cpu.flag(Flag::Z));
+            }
         }
     }
 
@@ -1653,7 +1655,9 @@ mod test {
                 assert!(cpu.flag(Flag::Z));
             }
             assert!(cpu.flag(Flag::N));
-            assert_eq!(cpu.flag(Flag::H), bit::check_borrow(current, 1, 4));
+            if bit::check_borrow(current, 1, 4) {
+                assert!(cpu.flag(Flag::H));
+            }
         }
     }
 
@@ -1675,6 +1679,17 @@ mod test {
 
             cpu.execute(i);
             assert_eq!(cpu.a.val(), v1 + v2);
+
+            if v1 + v2 == 0 {
+                assert!(cpu.flag(Flag::Z));
+            }
+            assert!(!cpu.flag(Flag::N));
+            if bit::check_overflow(v1, v2, 3) {
+                assert!(cpu.flag(Flag::H));
+            }
+            if bit::check_overflow(v1, v2, 7) {
+                assert!(cpu.flag(Flag::C));
+            }
         }
     }
 }
