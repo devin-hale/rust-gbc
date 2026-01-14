@@ -735,11 +735,11 @@ impl CPU {
     }
 
     fn rlc(&mut self, r: R8) {
-        let val = self.reg(r).val();
+        let val = self.src_r8(r);
         let b7 = bit::get(val, 7);
         self.set_flag_from_val(Flag::C, b7);
         let result = (val << 1) + b7;
-        self.reg(r).write(result);
+        self.ld_r8(r, result);
 
         if r == R8::A || result == 0 {
             self.reset_flag(Flag::Z);
@@ -1903,6 +1903,56 @@ mod test {
         }
         if bit::check_overflow(v1, v2 + cf, 7) {
             assert!(cpu.flag(Flag::C));
+        }
+    }
+
+    // ROT INSTRUCTIONS
+
+    #[test]
+    fn rlca() {
+        for v in 0..=u8::MAX {
+            let (mut cpu, _) = setup();
+            let op = 0b0000_0111;
+            cpu.a.write(v);
+
+            let i = cpu.decode(op).unwrap();
+            assert_eq!(i.op(), Operation::RLCA);
+            cpu.execute(i);
+
+            // cf := a.7, a := [a << 1] + cf
+            let a = v;
+            let a7 = bit::get(a, 7);
+            let a = (a << 1) + a7;
+
+            assert_eq!(cpu.cf() as u8, a7);
+            assert_eq!(cpu.a.val(), a);
+        }
+    }
+
+    #[test]
+    fn rlc_r() {
+        for rrr in 0..=7u8 {
+            for v in 0..=u8::MAX {
+                let (mut cpu, _) = setup();
+                let prefix = cpu.decode(0xCB).unwrap();
+                cpu.execute(prefix);
+
+                let op = 0b00000000 | rrr;
+                let r: R8 = rrr.try_into().unwrap();
+                cpu.ld_r8(r, v);
+
+                let i = cpu.decode(op).unwrap();
+                assert_eq!(i.op(), Operation::RLC(r));
+                cpu.execute(i);
+
+                // cf := a.7, a := [a << 1] + cf
+                let rv = v;
+                let r7 = bit::get(rv, 7);
+                let rv = (rv << 1) + r7;
+
+                assert_eq!(cpu.cf() as u8, r7);
+                assert_eq!(cpu.src_r8(r), rv);
+            }
         }
     }
 
