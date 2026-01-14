@@ -778,12 +778,12 @@ impl CPU {
     }
 
     fn rr(&mut self, r: R8) {
-        let val = self.reg(r).val();
+        let val = self.src_r8(r);
         let cf = self.cf() as u8;
         let b0 = bit::get(val, 0);
         self.set_flag_from_val(Flag::C, b0);
-        let result = (val >> 1) + (cf << 7);
-        self.reg(r).write(result);
+        let result = (val >> 1).wrapping_add(cf << 7);
+        self.ld_r8(r, result);
 
         if r == R8::A || result == 0 {
             self.reset_flag(Flag::Z);
@@ -1967,6 +1967,54 @@ mod test {
 
             assert_eq!(cpu.cf() as u8, a7);
             assert_eq!(cpu.a.val(), a);
+        }
+    }
+
+    #[test]
+    fn rra() {
+        for v in 0..=u8::MAX {
+            let (mut cpu, _) = setup();
+            let op = 0b0001_1111;
+            cpu.a.write(v);
+
+            let ocf = cpu.cf() as u8;
+            let i = cpu.decode(op).unwrap();
+            assert_eq!(i.op(), Operation::RRA);
+            cpu.execute(i);
+
+            let a = v;
+            let a0 = bit::get(a, 0);
+            let a = (a >> 1) + (ocf << 7);
+
+            assert_eq!(cpu.cf() as u8, a0);
+            assert_eq!(cpu.a.val(), a);
+        }
+    }
+
+    #[test]
+    fn rr_r() {
+        for rrr in 0..=7u8 {
+            for v in 0..=u8::MAX {
+                let (mut cpu, _) = setup();
+                let prefix = cpu.decode(0xCB).unwrap();
+                cpu.execute(prefix);
+
+                let op = 0b0001_1000 | rrr;
+                let r: R8 = rrr.try_into().unwrap();
+                cpu.ld_r8(r, v);
+
+                let ocf = cpu.cf() as u8;
+                let i = cpu.decode(op).unwrap();
+                assert_eq!(i.op(), Operation::RR(r));
+                cpu.execute(i);
+
+                let rv = v;
+                let r0 = bit::get(rv, 0);
+                let rv = (rv >> 1) + (ocf << 7);
+
+                assert_eq!(cpu.cf() as u8, r0);
+                assert_eq!(cpu.src_r8(r), rv);
+            }
         }
     }
 
