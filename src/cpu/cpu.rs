@@ -81,6 +81,15 @@ pub enum Flag {
     C,
 }
 
+enum Interrupt {
+    VBlank,
+    LCD,
+    STAT,
+    Timer,
+    Serial,
+    Joypad,
+}
+
 struct Register(u8);
 
 impl Register {
@@ -1150,6 +1159,27 @@ impl CPU {
         let i = b.val();
         bit::set(&mut val, i);
         self.ld_r8(r, val);
+    }
+
+    fn query_interrupt(&mut self) -> Option<Interrupt> {
+        let mut mem = self.mem();
+        let iflags = mem.interrupt_flags();
+        if iflags.vblank() {
+            return Some(Interrupt::VBlank);
+        }
+        if iflags.lcd() {
+            return Some(Interrupt::LCD);
+        }
+        if iflags.timer() {
+            return Some(Interrupt::Timer);
+        }
+        if iflags.serial() {
+            return Some(Interrupt::Serial);
+        }
+        if iflags.joypad() {
+            return Some(Interrupt::Joypad);
+        }
+        None
     }
 }
 

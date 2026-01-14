@@ -1,12 +1,122 @@
 use std::sync::{Arc, Mutex};
 
+use crate::utils::bit;
+
+const ROM_BANK_0_START: u16 = 0x0000;
+const ROM_BANK_0_END: u16 = 0x03FFF;
+
+const ROM_BANK_1_START: u16 = 0x4000;
+const ROM_BANK_1_END: u16 = 0x7FFF;
+
+const VRAM_START: u16 = 0x8000;
+const VRAM_END: u16 = 0x9FFF;
+
+const ERAM_START: u16 = 0xA000;
+const ERAM_END: u16 = 0xBFFF;
+
+const WRAM_0_START: u16 = 0xC000;
+const WRAM_0_END: u16 = 0xCFFF;
+
+const WRAM_1_START: u16 = 0xD000;
+const WRAM_1_END: u16 = 0xDFFF;
+
+const ECHO_RAM_START: u16 = 0xE000;
+const ECHO_RAM_END: u16 = 0xFDFF;
+
+const OAM_START: u16 = 0xFE00;
+const OAM_END: u16 = 0xFE9F;
+
+const UNUSED_START: u16 = 0xFEA0;
+const UNUSED_END: u16 = 0xFEFF;
+
+const IO_START: u16 = 0xFF00;
+const IF_REGISTER: u16 = 0xFF0F;
+const IO_END: u16 = 0xFF7F;
+
+const HRAM_START: u16 = 0xFF80;
+const HRAM_END: u16 = 0xFFFE;
+
+const IE_REGISTER: u16 = 0xFFFF;
+
 pub struct Memory {
-    m: [u8; 0xFFFF],
+    m: [u8; 0x1_0000],
+}
+
+pub struct IO<'a>(&'a mut [u8]);
+
+impl<'a> IO<'a> {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+pub struct InterruptRegister<'i>(&'i mut u8);
+
+impl<'i> InterruptRegister<'i> {
+    pub fn vblank(&self) -> bool {
+        bit::is_set(*self.0, 0)
+    }
+
+    pub fn vblank_set(&mut self) {
+        bit::set(self.0, 0)
+    }
+
+    pub fn vblank_reset(&mut self) {
+        bit::reset(self.0, 0)
+    }
+
+    pub fn lcd(&self) -> bool {
+        bit::is_set(*self.0, 1)
+    }
+
+    pub fn lcd_set(&mut self) {
+        bit::set(self.0, 1)
+    }
+
+    pub fn lcd_reset(&mut self) {
+        bit::reset(self.0, 1)
+    }
+
+    pub fn timer(&self) -> bool {
+        bit::is_set(*self.0, 2)
+    }
+
+    pub fn timer_set(&mut self) {
+        bit::set(self.0, 2)
+    }
+
+    pub fn timer_reset(&mut self) {
+        bit::reset(self.0, 2)
+    }
+
+    pub fn serial(&self) -> bool {
+        bit::is_set(*self.0, 3)
+    }
+
+    pub fn serial_set(&mut self) {
+        bit::set(self.0, 3)
+    }
+
+    pub fn serial_reset(&mut self) {
+        bit::reset(self.0, 3)
+    }
+
+    pub fn joypad(&self) -> bool {
+        bit::is_set(*self.0, 4)
+    }
+
+    pub fn joypad_set(&mut self) {
+        bit::set(self.0, 4)
+    }
+
+    pub fn joypad_reset(&mut self) {
+        bit::reset(self.0, 4)
+    }
 }
 
 impl Memory {
     pub fn new() -> Memory {
-        Memory { m: [0u8; 0xFFFF] }
+        Memory { m: [0u8; 0x1_0000] }
     }
 
     pub fn arc() -> Arc<Mutex<Memory>> {
@@ -69,6 +179,18 @@ impl Memory {
             }
         }
         true
+    }
+
+    pub fn io<'i>(&'i mut self) -> IO<'i> {
+        IO(&mut self.m[(IO_START as usize)..(IO_END as usize)])
+    }
+
+    pub fn interrupt_enable<'i>(&'i mut self) -> InterruptRegister<'i> {
+        InterruptRegister(&mut self.m[IE_REGISTER as usize])
+    }
+
+    pub fn interrupt_flags<'i>(&'i mut self) -> InterruptRegister<'i> {
+        InterruptRegister(&mut self.m[IF_REGISTER as usize])
     }
 }
 
@@ -139,6 +261,7 @@ mod test {
         assert_eq!(mem.read(addr), byte + 1);
     }
 
+    #[test]
     fn dec() {
         let mut mem = Memory::new();
         let addr = 0xFFEE;
@@ -146,5 +269,13 @@ mod test {
         mem.m[addr as usize] = byte;
         mem.dec(addr);
         assert_eq!(mem.read(addr), byte - 1);
+    }
+
+    #[test]
+    fn mem_io() {
+        let mut mem = Memory::new();
+        let io = mem.io();
+        let len = (IO_END - IO_START) as usize;
+        assert_eq!(io.len(), len);
     }
 }
