@@ -738,7 +738,7 @@ impl CPU {
         let val = self.src_r8(r);
         let b7 = bit::get(val, 7);
         self.set_flag_from_val(Flag::C, b7);
-        let result = (val << 1) + b7;
+        let result = (val << 1).wrapping_add(b7);
         self.ld_r8(r, result);
 
         if r == R8::A || result == 0 {
@@ -749,11 +749,11 @@ impl CPU {
     }
 
     fn rrc(&mut self, r: R8) {
-        let val = self.reg(r).val();
+        let val = self.src_r8(r);
         let b0 = bit::get(val, 0);
         self.set_flag_from_val(Flag::C, b0);
-        let result = (val >> 1) + (b0 << 7);
-        self.reg(r).write(result);
+        let result = (val >> 1).wrapping_add(b0 << 7);
+        self.ld_r8(r, result);
 
         if r == R8::A || result == 0 {
             self.reset_flag(Flag::Z);
@@ -1926,6 +1926,52 @@ mod test {
 
             assert_eq!(cpu.cf() as u8, a7);
             assert_eq!(cpu.a.val(), a);
+        }
+    }
+
+    #[test]
+    fn rrca() {
+        for v in 0..=u8::MAX {
+            let (mut cpu, _) = setup();
+            let op = 0b0000_1111;
+            cpu.a.write(v);
+
+            let i = cpu.decode(op).unwrap();
+            assert_eq!(i.op(), Operation::RRCA);
+            cpu.execute(i);
+
+            let a = v;
+            let a0 = bit::get(a, 0);
+            let a = (a >> 1) + (a0 << 7);
+
+            assert_eq!(cpu.cf() as u8, a0);
+            assert_eq!(cpu.a.val(), a);
+        }
+    }
+
+    #[test]
+    fn rrc_r() {
+        for rrr in 0..=7u8 {
+            for v in 0..=u8::MAX {
+                let (mut cpu, _) = setup();
+                let prefix = cpu.decode(0xCB).unwrap();
+                cpu.execute(prefix);
+
+                let op = 0b00001000 | rrr;
+                let r: R8 = rrr.try_into().unwrap();
+                cpu.ld_r8(r, v);
+
+                let i = cpu.decode(op).unwrap();
+                assert_eq!(i.op(), Operation::RRC(r));
+                cpu.execute(i);
+
+                let rv = v;
+                let r0 = bit::get(rv, 0);
+                let rv = (rv >> 1) + (r0 << 7);
+
+                assert_eq!(cpu.cf() as u8, r0);
+                assert_eq!(cpu.src_r8(r), rv);
+            }
         }
     }
 
