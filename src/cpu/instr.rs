@@ -432,8 +432,7 @@ impl Display for Operation {
             Operation::BIT(b, r) => format!("bit {}, {}", b, r),
             Operation::RES(b, r) => format!("res {}, {}", b, r),
             Operation::SET(b, r) => format!("set {}, {}", b, r),
-            //Operation::PREFIX => "cb prefix",
-            _ => String::from(""),
+            Operation::PREFIX => String::from("cb"),
         };
         write!(f, "{}", op)
     }
@@ -1129,7 +1128,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
     Err(Error::Unknown)
 }
 //
-fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
+pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
     let mut i = Instruction::new();
 
     let first_five = (opcode & 0b1111_1000) >> 3;

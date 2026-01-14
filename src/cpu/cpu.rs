@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3};
 use crate::{
-    cpu::instr::{Error as IError, JR, LDH, decode},
+    cpu::instr::{Error as IError, JR, LDH, decode, decode_prefix},
     memory::{self, Memory},
     utils::bit,
 };
@@ -44,6 +44,7 @@ pub struct CPU {
     stop: bool,
     halt: bool,
 
+    prefix: bool,
     ic_0: Option<InterruptControl>,
     ic_1: Option<InterruptControl>,
     ime: bool,
@@ -192,6 +193,7 @@ impl CPU {
             sp: 0xFFFE,
             pc: 0x0100,
             mem: mem.clone(),
+            prefix: false,
             stop: false,
             halt: false,
             ic_0: None,
@@ -310,8 +312,13 @@ impl CPU {
         n
     }
 
-    pub fn decode(&self, opcode: u8) -> Result<Instruction, Error> {
-        Ok(decode(opcode)?)
+    pub fn decode(&mut self, opcode: u8) -> Result<Instruction, Error> {
+        if self.prefix {
+            self.prefix = false;
+            Ok(decode_prefix(opcode)?)
+        } else {
+            Ok(decode(opcode)?)
+        }
     }
 
     pub fn execute(&mut self, i: Instruction) {
@@ -332,7 +339,7 @@ impl CPU {
             Operation::BIT(b, r) => self.bit(b, r),
             Operation::SET(b, r) => self.set(b, r),
             Operation::RES(b, r) => self.res(b, r),
-            Operation::PREFIX => {}
+            Operation::PREFIX => self.prefix = true,
             Operation::INC(inc) => self.inc(inc),
             Operation::DEC(dec) => self.dec(dec),
             Operation::ADD(add) => self.add(add),
@@ -1896,6 +1903,103 @@ mod test {
         }
         if bit::check_overflow(v1, v2 + cf, 7) {
             assert!(cpu.flag(Flag::C));
+        }
+    }
+
+    // BITWISE INSTRUCTIONS
+
+    #[test]
+    fn bit_is_set() {
+        for rrr in 0..=7u8 {
+            for bbb in 0..=7u8 {
+                for v in 0..=u8::MAX {
+                    let (mut cpu, _) = setup();
+                    let prefix = cpu.decode(0xCB).unwrap();
+                    cpu.execute(prefix);
+
+                    let op = 0b0100_0000 | (bbb << 3) | rrr;
+                    let b: B3 = bbb.into();
+                    let r: R8 = rrr.try_into().unwrap();
+                    cpu.ld_r8(r, v);
+
+                    let bit_set = bit::is_set(v, b.val());
+
+                    let i = cpu.decode(op).unwrap();
+                    assert_eq!(i.op(), Operation::BIT(b, r));
+                    cpu.execute(i);
+
+                    if bit_set {
+                        assert!(cpu.zf());
+                    }
+                    assert!(!cpu.nf());
+                    assert!(cpu.hf());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bit_res() {
+        for rrr in 0..=7u8 {
+            for bbb in 0..=7u8 {
+                for v in 0..=u8::MAX {
+                    let (mut cpu, _) = setup();
+                    let prefix = cpu.decode(0xCB).unwrap();
+                    cpu.execute(prefix);
+
+                    let op = 0b1000_0000 | (bbb << 3) | rrr;
+                    let b: B3 = bbb.into();
+                    let r: R8 = rrr.try_into().unwrap();
+                    cpu.ld_r8(r, v);
+
+                    let i = cpu.decode(op).unwrap();
+                    assert_eq!(i.op(), Operation::RES(b, r));
+                    cpu.execute(i);
+
+                    assert!(!bit::is_set(cpu.src_r8(r), b.val()));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bit_set() {
+        for rrr in 0..=7u8 {
+            for bbb in 0..=7u8 {
+                for v in 0..=u8::MAX {
+                    let (mut cpu, _) = setup();
+                    let prefix = cpu.decode(0xCB).unwrap();
+                    cpu.execute(prefix);
+
+                    let op = 0b1100_0000 | (bbb << 3) | rrr;
+                    let b: B3 = bbb.into();
+                    let r: R8 = rrr.try_into().unwrap();
+                    cpu.ld_r8(r, v);
+
+                    let i = cpu.decode(op).unwrap();
+                    assert_eq!(i.op(), Operation::SET(b, r));
+                    cpu.execute(i);
+
+                    assert!(bit::is_set(cpu.src_r8(r), b.val()));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bit_cpl() {
+        for v in 0..=u8::MAX {
+            let (mut cpu, _) = setup();
+            let op = 0b0010_1111;
+            cpu.a.write(v);
+
+            let i = cpu.decode(op).unwrap();
+            assert_eq!(i.op(), Operation::CPL);
+            cpu.execute(i);
+
+            assert_eq!(!v, cpu.a.val());
+            assert!(cpu.nf());
+            assert!(cpu.hf());
         }
     }
 
