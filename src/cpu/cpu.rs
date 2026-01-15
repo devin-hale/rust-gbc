@@ -2236,6 +2236,66 @@ mod test {
         }
     }
 
+    #[test]
+    fn or_r8() {
+        for rrr in 0..=7u8 {
+            for a_val in 0..=u8::MAX {
+                for r_val in 0..=u8::MAX {
+                    let r: R8 = rrr.try_into().unwrap();
+                    if r == R8::A && a_val != r_val {
+                        continue;
+                    }
+                    let (mut cpu, _) = setup();
+                    let op = 0b1011_0000 | rrr;
+
+                    cpu.a.write(a_val);
+                    cpu.ld_r8(r, r_val);
+
+                    let i = cpu.decode(op).unwrap();
+                    assert_eq!(i.op(), Operation::OR(r));
+                    cpu.execute(i);
+
+                    let result = a_val | r_val;
+
+                    assert_eq!(cpu.a.val(), result);
+                    if result == 0 {
+                        assert!(cpu.flag(Flag::Z));
+                    }
+                    assert!(!cpu.flag(Flag::N));
+                    assert!(!cpu.flag(Flag::H));
+                    assert!(!cpu.flag(Flag::C));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn or_n8() {
+        for a_val in 0..=u8::MAX {
+            for n in 0..=u8::MAX {
+                let (mut cpu, mem) = setup();
+                let op = 0b1111_0110;
+
+                cpu.a.write(a_val);
+                mem.lock().unwrap().write(cpu.pc, n);
+
+                let i = cpu.decode(op).unwrap();
+                assert_eq!(i.op(), Operation::OR(R8::N8));
+                cpu.execute(i);
+
+                let result = a_val | n;
+
+                assert_eq!(cpu.a.val(), result);
+                if result == 0 {
+                    assert!(cpu.flag(Flag::Z));
+                }
+                assert!(!cpu.flag(Flag::N));
+                assert!(!cpu.flag(Flag::H));
+                assert!(!cpu.flag(Flag::C));
+            }
+        }
+    }
+
     // ROT INSTRUCTIONS
 
     #[test]
