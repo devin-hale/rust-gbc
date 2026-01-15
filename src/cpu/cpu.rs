@@ -3,6 +3,13 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
+pub const MASTER_CLOCK: u32 = 4_194_304; // Hz
+pub const T_CYCLE_PERIOD: f64 = 1_000_000_000f64 / MASTER_CLOCK as f64; // ns
+pub const SYSTEM_CLOCK: u32 = MASTER_CLOCK / 4;
+
+const DIV_CLOCK: u32 = 16_384;
+const DIV_PERIOD: f64 = 1f64 / DIV_CLOCK as f64;
+
 use thiserror::Error;
 
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3};
@@ -109,7 +116,7 @@ impl Register {
     }
 
     fn inc(&mut self) -> u8 {
-        self.0 += 1;
+        self.0 = self.0.wrapping_add(1);
         self.0
     }
 
@@ -248,16 +255,16 @@ impl CPU {
         b == 1
     }
 
-    pub fn cf(&self) -> bool {
+    fn cf(&self) -> bool {
         self.flag(Flag::C)
     }
-    pub fn hf(&self) -> bool {
+    fn hf(&self) -> bool {
         self.flag(Flag::H)
     }
-    pub fn nf(&self) -> bool {
+    fn nf(&self) -> bool {
         self.flag(Flag::N)
     }
-    pub fn zf(&self) -> bool {
+    fn zf(&self) -> bool {
         self.flag(Flag::Z)
     }
 
@@ -288,31 +295,32 @@ impl CPU {
         self.mem.lock().expect("error acquiring Memory mutex lock")
     }
 
-    pub fn fetch(&mut self) -> u8 {
+    fn fetch(&mut self) -> u8 {
         let pc = self.pc;
-        self.pc += 1;
+        let next = pc.wrapping_add(1);
+        self.pc = next;
         self.mem().read(pc)
     }
 
-    pub fn imm(&mut self) -> u8 {
+    fn imm(&mut self) -> u8 {
         let n = self.fetch();
         self.n8 = Some(n);
         n
     }
 
-    pub fn fetch_word(&mut self) -> u16 {
+    fn fetch_word(&mut self) -> u16 {
         let low = self.fetch() as u16;
         let high = self.fetch() as u16;
         (high << 8) | low
     }
 
-    pub fn imm_word(&mut self) -> u16 {
+    fn imm_word(&mut self) -> u16 {
         let n = self.fetch_word();
         self.n16 = Some(n);
         n
     }
 
-    pub fn decode(&mut self, opcode: u8) -> Result<Instruction, Error> {
+    fn decode(&mut self, opcode: u8) -> Result<Instruction, Error> {
         if self.prefix {
             self.prefix = false;
             Ok(decode_prefix(opcode)?)
@@ -321,7 +329,7 @@ impl CPU {
         }
     }
 
-    pub fn execute(&mut self, i: Instruction) -> u8 {
+    fn execute(&mut self, i: Instruction) -> u8 {
         let mut i = i;
         match i.op() {
             Operation::NOP => {}
@@ -418,21 +426,21 @@ impl CPU {
         i.cycles()
     }
 
-    pub fn cycle(&mut self) -> Result<(), Error> {
-        if self.halt {
+    pub fn progress(&mut self) -> Result<u8, Error> {
+        if self.stop {
             // check for interrupt
-            return Ok(());
+            return Ok(4);
         }
         if self.halt {
             // check for reset signal
-            return Ok(());
+            return Ok(4);
         }
         self.handle_ic_0();
         let opcode = self.fetch();
         let i = self.decode(opcode)?;
-        self.execute(i);
+        let cycles = self.execute(i);
         self.handle_ic_1();
-        Ok(())
+        Ok(cycles)
     }
 
     fn stop(&mut self) {
@@ -456,7 +464,7 @@ impl CPU {
     }
 
     fn jr(&mut self, b: u8) {
-        self.pc += b as u16;
+        self.pc = self.pc.wrapping_add(b as u16);
     }
 
     fn jr_cond(&mut self, c: Cond, b: u8) -> bool {
@@ -470,7 +478,7 @@ impl CPU {
     }
 
     fn jr_word(&mut self, w: u16) {
-        self.pc += w;
+        self.pc = self.pc.wrapping_add(w);
     }
 
     fn call(&mut self) {
@@ -496,7 +504,7 @@ impl CPU {
 
     pub fn pop(&mut self, r: R16) {
         let sp = self.sp;
-        self.sp += 2;
+        self.sp = self.sp.wrapping_add(2);
         let mut val = self.mem().read_word(sp);
         if r == R16::AF {
             val &= 0xFFF0;
@@ -696,10 +704,10 @@ impl CPU {
                 self.hl().inc();
             }
             R16::SP => {
-                self.sp += 1;
+                self.sp = self.sp.wrapping_add(1);
             }
             R16::PC => {
-                self.pc += 1;
+                self.pc = self.pc.wrapping_add(1);
             }
             _ => panic!("attempt to increment {}", r),
         }
@@ -1105,7 +1113,7 @@ impl CPU {
         let addr = self.sp;
         let val = self.mem().read_word(addr);
         self.pc = val;
-        self.sp += 2;
+        self.sp = self.sp.wrapping_add(2);
     }
 
     fn ret_cond(&mut self, c: Cond) -> bool {
@@ -1226,6 +1234,8 @@ impl CPU {
 
 #[cfg(test)]
 mod test {
+    use crate::memory::DIV;
+
     use super::*;
 
     #[test]
@@ -1360,7 +1370,7 @@ mod test {
         let mut w = Word::new(&mut h, &mut l);
         assert_eq!(expected_word, w.val());
 
-        expected_word += 1;
+        expected_word = expected_word.wrapping_add(1);
         w.inc();
         assert_eq!(expected_word, w.val());
 
@@ -1559,10 +1569,15 @@ mod test {
             cpu.a.write(val);
 
             let i = cpu.decode(opcode).unwrap();
+
             assert_eq!(i.op(), Operation::LDH(LDH::Mem(Mem::N8)));
 
             cpu.execute(i);
-            assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), val);
+            if (addr as u16) | 0xFF00 == DIV {
+                assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), 0);
+            } else {
+                assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), val);
+            }
         }
     }
 
@@ -3064,11 +3079,11 @@ mod test {
         cpu.ime = true;
         let opcode = 0b11110011;
         mem.lock().unwrap().write(cpu.pc, opcode);
-        cpu.cycle().unwrap();
+        cpu.progress().unwrap();
 
         assert!(cpu.ime);
 
-        cpu.cycle().unwrap();
+        cpu.progress().unwrap();
         assert!(!cpu.ime);
     }
 
@@ -3077,11 +3092,11 @@ mod test {
         let (mut cpu, mem) = setup();
         let opcode = 0b11111011;
         mem.lock().unwrap().write(cpu.pc, opcode);
-        cpu.cycle().unwrap();
+        cpu.progress().unwrap();
 
         assert!(!cpu.ime);
 
-        cpu.cycle().unwrap();
+        cpu.progress().unwrap();
         assert!(cpu.ime);
     }
 

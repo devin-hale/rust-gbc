@@ -30,7 +30,7 @@ const UNUSED_START: u16 = 0xFEA0;
 const UNUSED_END: u16 = 0xFEFF;
 
 const IO_START: u16 = 0xFF00;
-const DIV: u16 = 0xFF04;
+pub const DIV: u16 = 0xFF04;
 const IF_REGISTER: u16 = 0xFF0F;
 const IO_END: u16 = 0xFF7F;
 

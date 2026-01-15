@@ -1139,9 +1139,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::RLC(r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1151,9 +1151,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::RRC(r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1163,9 +1163,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::RL(r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1175,9 +1175,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::RR(r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1187,9 +1187,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::SLA(r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1199,9 +1199,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::SRA(r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1211,9 +1211,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::SWAP(r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1223,9 +1223,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::SRL(r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1241,9 +1241,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::BIT(b3, r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1254,9 +1254,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::RES(b, r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
@@ -1267,9 +1267,9 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             i.op = Operation::SET(b, r);
             i.length = 2;
             if r == R8::HL {
-                i.cycles = (16, 0);
+                i.cycles = (12, 0);
             } else {
-                i.cycles = (8, 0);
+                i.cycles = (4, 0);
             }
             return Ok(i);
         }
