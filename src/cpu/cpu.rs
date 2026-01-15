@@ -957,7 +957,7 @@ impl CPU {
         let a = self.a.val();
         let val = self.src_r8(r);
         let result = a.wrapping_sub(val);
-        self.reg(r).write(result);
+        self.a.write(result);
 
         if result == 0 {
             self.set_flag(Flag::Z);
@@ -1903,6 +1903,74 @@ mod test {
         }
         if bit::check_overflow(v1, v2 + cf, 7) {
             assert!(cpu.flag(Flag::C));
+        }
+    }
+
+    #[test]
+    fn sub_r8() {
+        for rrr in 0..=7u8 {
+            for a_val in 0..=u8::MAX {
+                for r_val in 0..=u8::MAX {
+                    let r: R8 = rrr.try_into().unwrap();
+                    if r == R8::A && a_val != r_val {
+                        continue;
+                    }
+                    let (mut cpu, _) = setup();
+                    let op = 0b1001_0000 | rrr;
+
+                    cpu.a.write(a_val);
+                    cpu.ld_r8(r, r_val);
+
+                    let i = cpu.decode(op).unwrap();
+                    assert_eq!(i.op(), Operation::SUB(r));
+                    cpu.execute(i);
+
+                    let result = a_val.wrapping_sub(r_val);
+
+                    assert_eq!(cpu.a.val(), result);
+                    if result == 0 {
+                        assert!(cpu.flag(Flag::Z));
+                    }
+                    assert!(cpu.flag(Flag::N));
+                    if bit::check_borrow(a_val, r_val, 4) {
+                        assert!(cpu.flag(Flag::H));
+                    }
+                    if bit::check_borrow(a_val, r_val, 8) {
+                        assert!(cpu.flag(Flag::C));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sub_n8() {
+        for a_val in 0..=u8::MAX {
+            for n in 0..=u8::MAX {
+                let (mut cpu, mem) = setup();
+                let op = 0b1101_0110;
+
+                cpu.a.write(a_val);
+                mem.lock().unwrap().write(cpu.pc, n);
+
+                let i = cpu.decode(op).unwrap();
+                assert_eq!(i.op(), Operation::SUB(R8::N8));
+                cpu.execute(i);
+
+                let result = a_val.wrapping_sub(n);
+
+                assert_eq!(cpu.a.val(), result);
+                if result == 0 {
+                    assert!(cpu.flag(Flag::Z));
+                }
+                assert!(cpu.flag(Flag::N));
+                if bit::check_borrow(a_val, n, 4) {
+                    assert!(cpu.flag(Flag::H));
+                }
+                if bit::check_borrow(a_val, n, 8) {
+                    assert!(cpu.flag(Flag::C));
+                }
+            }
         }
     }
 
