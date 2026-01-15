@@ -1136,7 +1136,7 @@ impl CPU {
         let v = v >> 1;
 
         if v == 0 {
-            self.reset_flag(Flag::Z);
+            self.set_flag(Flag::Z);
         }
         self.reset_flag(Flag::N);
         self.reset_flag(Flag::H);
@@ -2157,6 +2157,71 @@ mod test {
                 assert!(!cpu.hf());
 
                 assert_eq!(cpu.cf() as u8, r7);
+                assert_eq!(cpu.src_r8(r), rv);
+            }
+        }
+    }
+
+    #[test]
+    fn sra_r() {
+        for rrr in 0..=7u8 {
+            for v in 0..=u8::MAX {
+                let (mut cpu, _) = setup();
+                let prefix = cpu.decode(0xCB).unwrap();
+                cpu.execute(prefix);
+
+                let op = 0b0010_1000 | rrr;
+                let r: R8 = rrr.try_into().unwrap();
+                cpu.ld_r8(r, v);
+
+                let i = cpu.decode(op).unwrap();
+                assert_eq!(i.op(), Operation::SRA(r));
+                cpu.execute(i);
+
+                let rv = v;
+                let r7 = bit::get(rv, 7) << 7;
+                let r0 = bit::get(rv, 0);
+                let rv = (rv >> 1) | r7;
+
+                if rv == 0 {
+                    assert!(cpu.zf());
+                }
+                assert!(!cpu.nf());
+                assert!(!cpu.hf());
+
+                assert_eq!(cpu.cf() as u8, r0);
+                assert_eq!(cpu.src_r8(r), rv);
+            }
+        }
+    }
+
+    #[test]
+    fn srl_r() {
+        for rrr in 0..=7u8 {
+            for v in 0..=u8::MAX {
+                let (mut cpu, _) = setup();
+                let prefix = cpu.decode(0xCB).unwrap();
+                cpu.execute(prefix);
+
+                let op = 0b0011_1000 | rrr;
+                let r: R8 = rrr.try_into().unwrap();
+                cpu.ld_r8(r, v);
+
+                let i = cpu.decode(op).unwrap();
+                assert_eq!(i.op(), Operation::SRL(r));
+                cpu.execute(i);
+
+                let rv = v;
+                let r0 = bit::get(rv, 0);
+                let rv = rv >> 1;
+
+                if rv == 0 {
+                    assert!(cpu.zf());
+                }
+                assert!(!cpu.nf());
+                assert!(!cpu.hf());
+
+                assert_eq!(cpu.cf() as u8, r0);
                 assert_eq!(cpu.src_r8(r), rv);
             }
         }
