@@ -327,7 +327,7 @@ impl CPU {
             Operation::NOP => {}
             Operation::DI => self.di(),
             Operation::EI => self.ei(),
-            Operation::STOP => self.stop = true,
+            Operation::STOP => self.stop(),
             Operation::HALT => self.halt = true,
             Operation::LD(ld) => {
                 self.ld(ld).unwrap();
@@ -433,6 +433,11 @@ impl CPU {
         self.execute(i);
         self.handle_ic_1();
         Ok(())
+    }
+
+    fn stop(&mut self) {
+        self.stop = true;
+        self.mem().reset_div();
     }
 
     fn jp(&mut self, r: R16) {
@@ -3083,11 +3088,15 @@ mod test {
     #[test]
     fn stop() {
         let opcode = 0b00010000;
-        let (mut cpu, _) = setup();
+        let (mut cpu, mem) = setup();
+        for _ in 0..25 {
+            mem.lock().unwrap().inc_div();
+        }
         let i = cpu.decode(opcode).unwrap();
         assert_eq!(i.op(), Operation::STOP);
         cpu.execute(i);
         assert!(cpu.stop);
+        assert!(mem.lock().unwrap().div() == 0);
     }
 
     #[test]

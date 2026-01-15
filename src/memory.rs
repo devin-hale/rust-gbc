@@ -30,6 +30,7 @@ const UNUSED_START: u16 = 0xFEA0;
 const UNUSED_END: u16 = 0xFEFF;
 
 const IO_START: u16 = 0xFF00;
+const DIV: u16 = 0xFF04;
 const IF_REGISTER: u16 = 0xFF0F;
 const IO_END: u16 = 0xFF7F;
 
@@ -134,12 +135,24 @@ impl Memory {
     }
 
     pub fn write(&mut self, addr: u16, data: u8) {
-        self.m[addr as usize] = data;
+        let mut d = data;
+        if addr == DIV {
+            d = 0;
+        }
+        self.m[addr as usize] = d;
     }
 
     pub fn write_word(&mut self, addr: u16, data: u16) {
-        let low = (data & 0x00FF) as u8;
-        let high = ((data & 0xFF00) >> 8) as u8;
+        let mut low = (data & 0x00FF) as u8;
+        let mut high = ((data & 0xFF00) >> 8) as u8;
+
+        if addr == DIV {
+            low = 0;
+        }
+        if addr + 1 == DIV {
+            high = 0;
+        }
+
         self.write(addr, low);
         self.write(addr + 1, high);
     }
@@ -150,6 +163,10 @@ impl Memory {
     }
 
     pub fn dec(&mut self, addr: u16) -> u8 {
+        if addr == DIV {
+            self.m[addr as usize] = 0;
+            return 0;
+        }
         self.m[addr as usize] -= 1;
         self.read(addr)
     }
@@ -191,6 +208,20 @@ impl Memory {
 
     pub fn interrupt_flags<'i>(&'i mut self) -> InterruptRegister<'i> {
         InterruptRegister(&mut self.m[IF_REGISTER as usize])
+    }
+
+    pub fn div(&self) -> u8 {
+        self.m[DIV as usize]
+    }
+
+    pub fn inc_div(&mut self) {
+        let mut div = self.div();
+        div = div.wrapping_add(1);
+        self.m[DIV as usize] = div;
+    }
+
+    pub fn reset_div(&mut self) {
+        self.m[DIV as usize] = 0;
     }
 }
 
