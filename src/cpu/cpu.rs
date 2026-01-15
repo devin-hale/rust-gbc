@@ -321,7 +321,7 @@ impl CPU {
         }
     }
 
-    pub fn execute(&mut self, i: Instruction) {
+    pub fn execute(&mut self, i: Instruction) -> u8 {
         let mut i = i;
         match i.op() {
             Operation::NOP => {}
@@ -357,9 +357,19 @@ impl CPU {
             Operation::SCF => self.scf(),
             Operation::CCF => self.ccf(),
             Operation::JP(r) => self.jp(r),
-            Operation::JPC(c, r) => self.jp_cond(c, r),
+            Operation::JPC(c, r) => {
+                let branched = self.jp_cond(c, r);
+                if branched {
+                    return i.branch_cycles();
+                }
+            }
             Operation::CALL => self.call(),
-            Operation::CALLC(c) => self.call_cond(c),
+            Operation::CALLC(c) => {
+                let branched = self.call_cond(c);
+                if branched {
+                    return i.branch_cycles();
+                }
+            }
             Operation::RST(t) => self.rst(t),
             Operation::POP(r) => self.pop(r),
             Operation::PUSH(r) => {
@@ -373,13 +383,23 @@ impl CPU {
             Operation::JR(jr) => {
                 let v = self.imm();
                 match jr {
-                    JR::Cond(c) => self.jr_cond(c, v),
+                    JR::Cond(c) => {
+                        let jumped = self.jr_cond(c, v);
+                        if jumped {
+                            return i.branch_cycles();
+                        }
+                    }
                     JR::N8 => self.jr(v),
                 }
             }
             Operation::RET => self.ret(),
             Operation::RETI => self.reti(),
-            Operation::RETC(c) => self.ret_cond(c),
+            Operation::RETC(c) => {
+                let branched = self.ret_cond(c);
+                if branched {
+                    return i.branch_cycles();
+                }
+            }
             Operation::SUB(r) => self.sub(r),
             Operation::SBC(r) => self.sbc(r),
             Operation::AND(r) => self.and(r),
@@ -395,6 +415,7 @@ impl CPU {
             i.set_n16(n);
             self.n16 = None;
         }
+        i.cycles()
     }
 
     pub fn cycle(&mut self) -> Result<(), Error> {
@@ -419,11 +440,13 @@ impl CPU {
         self.pc = addr;
     }
 
-    fn jp_cond(&mut self, c: Cond, r: R16) {
+    fn jp_cond(&mut self, c: Cond, r: R16) -> bool {
         if self.cc(c) {
-            self.jp(r)
+            self.jp(r);
+            return true;
         } else {
             self.fetch_word();
+            return false;
         }
     }
 
@@ -431,11 +454,13 @@ impl CPU {
         self.pc += b as u16;
     }
 
-    fn jr_cond(&mut self, c: Cond, b: u8) {
+    fn jr_cond(&mut self, c: Cond, b: u8) -> bool {
         if self.cc(c) {
             self.jr(b);
+            return true;
         } else {
             self.fetch();
+            return false;
         }
     }
 
@@ -449,10 +474,12 @@ impl CPU {
         self.pc = self.fetch_word();
     }
 
-    fn call_cond(&mut self, c: Cond) {
+    fn call_cond(&mut self, c: Cond) -> bool {
         if self.cc(c) {
             self.call();
+            return true;
         }
+        false
     }
 
     fn rst(&mut self, t: T3) {
@@ -1076,10 +1103,12 @@ impl CPU {
         self.sp += 2;
     }
 
-    fn ret_cond(&mut self, c: Cond) {
+    fn ret_cond(&mut self, c: Cond) -> bool {
         if self.cc(c) {
             self.ret();
+            return true;
         }
+        false
     }
 
     fn reti(&mut self) {
