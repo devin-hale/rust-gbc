@@ -1122,7 +1122,7 @@ impl CPU {
         let v = l | h;
         self.ld_r8(r, v);
         if v == 0 {
-            self.reset_flag(Flag::Z);
+            self.set_flag(Flag::Z);
         }
         self.reset_flag(Flag::N);
         self.reset_flag(Flag::H);
@@ -2222,6 +2222,38 @@ mod test {
                 assert!(!cpu.hf());
 
                 assert_eq!(cpu.cf() as u8, r0);
+                assert_eq!(cpu.src_r8(r), rv);
+            }
+        }
+    }
+
+    #[test]
+    fn swap() {
+        for rrr in 0..=7u8 {
+            for v in 0..=u8::MAX {
+                let (mut cpu, _) = setup();
+                let prefix = cpu.decode(0xCB).unwrap();
+                cpu.execute(prefix);
+
+                let op = 0b0011_0000 | rrr;
+                let r: R8 = rrr.try_into().unwrap();
+                cpu.ld_r8(r, v);
+
+                let i = cpu.decode(op).unwrap();
+                assert_eq!(i.op(), Operation::SWAP(r));
+                cpu.execute(i);
+
+                let high = (v & 0xF) << 4;
+                let low = (v & 0xF0) >> 4;
+                let rv = high | low;
+
+                if rv == 0 {
+                    assert!(cpu.zf());
+                }
+                assert!(!cpu.nf());
+                assert!(!cpu.hf());
+                assert!(!cpu.cf());
+
                 assert_eq!(cpu.src_r8(r), rv);
             }
         }
