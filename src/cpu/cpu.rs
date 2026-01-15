@@ -822,35 +822,35 @@ impl CPU {
     fn daa(&mut self) {
         let a = self.a.val();
         if self.flag(Flag::N) {
-            let mut adj = 0;
+            let mut adj: u8 = 0;
             if self.flag(Flag::H) {
-                adj += 0x6;
+                adj = adj.wrapping_add(0x6);
             }
             if self.flag(Flag::C) {
-                adj += 0x60;
+                adj = adj.wrapping_add(0x60);
             }
-            let result = a - adj;
+            let result = a.wrapping_sub(adj);
             self.a.write(result);
 
             self.reset_flag(Flag::H);
             if result == 0 {
-                self.reset_flag(Flag::Z);
+                self.set_flag(Flag::Z);
             }
         } else {
-            let mut adj = 0;
+            let mut adj: u8 = 0;
             if self.flag(Flag::H) || (a & 0xF) > 0x9 {
-                adj += 0x6;
+                adj = adj.wrapping_add(0x6);
             }
             if self.flag(Flag::C) || a > 0x99 {
-                adj += 0x60;
+                adj = adj.wrapping_add(0x60);
                 self.set_flag(Flag::C);
             }
-            let result = a + adj;
+            let result = a.wrapping_add(adj);
             self.a.write(result);
 
             self.reset_flag(Flag::H);
             if result == 0 {
-                self.reset_flag(Flag::Z);
+                self.set_flag(Flag::Z);
             }
         }
     }
@@ -2292,6 +2292,60 @@ mod test {
                 assert!(!cpu.flag(Flag::N));
                 assert!(!cpu.flag(Flag::H));
                 assert!(!cpu.flag(Flag::C));
+            }
+        }
+    }
+
+    #[test]
+    fn daa() {
+        for cf in 0..=1u8 {
+            for hf in 0..=1u8 {
+                for nf in 0..=1u8 {
+                    for val in 0..=u8::MAX {
+                        let (mut cpu, _) = setup();
+                        let op = 0b0010_0111;
+
+                        cpu.set_flag_from_val(Flag::C, cf);
+                        cpu.set_flag_from_val(Flag::H, hf);
+                        cpu.set_flag_from_val(Flag::N, nf);
+                        cpu.a.write(val);
+
+                        let i = cpu.decode(op).unwrap();
+                        assert_eq!(i.op(), Operation::DAA);
+                        cpu.execute(i);
+
+                        if nf == 1 {
+                            let mut adj = 0u8;
+                            if hf == 1 {
+                                adj = adj.wrapping_add(0x06);
+                            }
+                            if cf == 1 {
+                                adj = adj.wrapping_add(0x60);
+                            }
+                            let result = val.wrapping_sub(adj);
+                            assert_eq!(cpu.a.val(), result);
+                            if result == 0 {
+                                assert!(cpu.zf());
+                            }
+                        } else {
+                            let mut adj = 0u8;
+                            if hf == 1 || (val & 0xF) > 0x9 {
+                                adj = adj.wrapping_add(0x06);
+                            }
+                            if cf == 1 || val > 0x99 {
+                                adj = adj.wrapping_add(0x60);
+                                assert!(cpu.cf());
+                            }
+                            let result = val.wrapping_add(adj);
+                            assert_eq!(cpu.a.val(), result);
+                            if result == 0 {
+                                assert!(cpu.zf());
+                            }
+                        }
+
+                        assert!(!cpu.flag(Flag::H));
+                    }
+                }
             }
         }
     }
