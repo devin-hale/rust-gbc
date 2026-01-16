@@ -51,6 +51,8 @@ pub struct CPU {
     stop: bool,
     halt: bool,
 
+    i: Option<Instruction>,
+
     prefix: bool,
     ic_0: Option<InterruptControl>,
     ic_1: Option<InterruptControl>,
@@ -203,6 +205,7 @@ impl CPU {
             prefix: false,
             stop: false,
             halt: false,
+            i: None,
             ic_0: None,
             ic_1: None,
             ime: false,
@@ -423,10 +426,13 @@ impl CPU {
             i.set_n16(n);
             self.n16 = None;
         }
+        if self.i.is_some() {
+            self.i = None;
+        }
         i.cycles()
     }
 
-    pub fn progress(&mut self) -> Result<u8, Error> {
+    pub fn tick(&mut self) -> Result<u8, Error> {
         if self.stop {
             // check for interrupt
             return Ok(4);
@@ -435,11 +441,18 @@ impl CPU {
             // check for reset signal
             return Ok(4);
         }
+
         self.handle_ic_0();
-        let opcode = self.fetch();
-        let i = self.decode(opcode)?;
-        let cycles = self.execute(i);
+        let mut cycles = 0;
+        if self.i.is_some() {
+            cycles = self.execute(self.i.unwrap());
+        }
         self.handle_ic_1();
+        if self.i.is_none() {
+            let opcode = self.fetch();
+            let i = self.decode(opcode)?;
+            self.i = Some(i);
+        }
         Ok(cycles)
     }
 
@@ -3075,28 +3088,28 @@ mod test {
 
     #[test]
     fn di() {
-        let (mut cpu, mem) = setup();
+        let (mut cpu, _) = setup();
         cpu.ime = true;
         let opcode = 0b11110011;
-        mem.lock().unwrap().write(cpu.pc, opcode);
-        cpu.progress().unwrap();
-
+        let i = cpu.decode(opcode).unwrap();
+        cpu.i = Some(i);
+        cpu.tick().unwrap();
         assert!(cpu.ime);
 
-        cpu.progress().unwrap();
+        cpu.tick().unwrap();
         assert!(!cpu.ime);
     }
 
     #[test]
     fn ei() {
-        let (mut cpu, mem) = setup();
+        let (mut cpu, _) = setup();
         let opcode = 0b11111011;
-        mem.lock().unwrap().write(cpu.pc, opcode);
-        cpu.progress().unwrap();
-
+        let i = cpu.decode(opcode).unwrap();
+        cpu.i = Some(i);
+        cpu.tick().unwrap();
         assert!(!cpu.ime);
 
-        cpu.progress().unwrap();
+        cpu.tick().unwrap();
         assert!(cpu.ime);
     }
 

@@ -31,7 +31,7 @@ pub enum Error {
     Unknown,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Instruction {
     opcode: u8,
     op: Operation,
