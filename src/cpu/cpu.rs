@@ -437,11 +437,13 @@ impl CPU {
     }
 
     pub fn handle_div(&mut self, cycles: u8) {
-        self.div_cycles = self.div_cycles.wrapping_add(cycles as u64);
+        if !self.stop {
+            self.div_cycles = self.div_cycles.wrapping_add(cycles as u64);
 
-        if self.div_cycles >= CYCLES_PER_DIV_TICK {
-            self.mem().inc_div();
-            self.div_cycles = self.div_cycles.saturating_sub(CYCLES_PER_DIV_TICK);
+            if self.div_cycles >= CYCLES_PER_DIV_TICK {
+                self.mem().inc_div();
+                self.div_cycles = self.div_cycles.saturating_sub(CYCLES_PER_DIV_TICK);
+            }
         }
     }
 
@@ -3188,5 +3190,17 @@ mod test {
             cycles += cpu.tick().unwrap() as u64;
         }
         assert_eq!(mem.lock().unwrap().div(), d + 1);
+    }
+
+    #[test]
+    fn div_tick_stop() {
+        let (mut cpu, mem) = setup();
+        cpu.tick().unwrap();
+        cpu.stop();
+        let mut cycles = 0;
+        while cycles < (CYCLES_PER_DIV_TICK + 4) {
+            cycles += cpu.tick().unwrap() as u64;
+        }
+        assert_eq!(mem.lock().unwrap().div(), 0);
     }
 }
