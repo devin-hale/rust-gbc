@@ -31,6 +31,7 @@ const UNUSED_END: u16 = 0xFEFF;
 
 const IO_START: u16 = 0xFF00;
 pub const DIV: u16 = 0xFF04;
+const TIMER_CONTROL: u16 = 0xFF04;
 const IF_REGISTER: u16 = 0xFF0F;
 const IO_END: u16 = 0xFF7F;
 
@@ -172,6 +173,64 @@ impl<'i> InterruptRegister<'i> {
     }
 }
 
+pub struct TimerControl<'i>(&'i mut u8);
+
+impl<'t> TimerControl<'t> {
+    const ENABLE_BIT: u8 = 2;
+    const CLOCK_SELECT_MASK: u8 = 0b11;
+
+    pub fn enable(&mut self) {
+        bit::set(self.0, Self::ENABLE_BIT);
+    }
+
+    pub fn disable(&mut self) {
+        bit::reset(self.0, Self::ENABLE_BIT);
+    }
+
+    pub fn is_enabled(&mut self) -> bool {
+        bit::is_set(*self.0, Self::ENABLE_BIT)
+    }
+
+    pub fn clk(&mut self) -> ClockSelect {
+        (*self.0 & Self::CLOCK_SELECT_MASK).into()
+    }
+
+    pub fn clk_select(&mut self, cs: ClockSelect) {
+        *self.0 = (*self.0 & !Self::CLOCK_SELECT_MASK) | cs as u8;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClockSelect {
+    Hyper,
+    Slow,
+    Medium,
+    Fast,
+}
+
+impl From<u8> for ClockSelect {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ClockSelect::Hyper,
+            1 => ClockSelect::Slow,
+            2 => ClockSelect::Medium,
+            3 => ClockSelect::Fast,
+            _ => panic!("invalid ClockSelect value"),
+        }
+    }
+}
+
+impl ClockSelect {
+    fn cycles(&self) -> u64 {
+        match self {
+            ClockSelect::Hyper => 256_000_000,
+            ClockSelect::Slow => 4_000_000,
+            ClockSelect::Medium => 16_000_000,
+            ClockSelect::Fast => 64_000_000,
+        }
+    }
+}
+
 impl Memory {
     pub fn new() -> Memory {
         Memory { m: [0u8; 0x1_0000] }
@@ -286,6 +345,10 @@ impl Memory {
     pub fn reset_div(&mut self) {
         self.m[DIV as usize] = 0;
     }
+
+    pub fn timer_control<'t>(&'t mut self) -> TimerControl<'t> {
+        TimerControl(&mut self.m[TIMER_CONTROL as usize])
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -371,5 +434,30 @@ mod test {
         let io = mem.io();
         let len = (IO_END - IO_START) as usize;
         assert_eq!(io.len(), len);
+    }
+
+    #[test]
+    fn timer_control() {
+        let mut mem = Memory::new();
+        mem.init();
+        let mut cpy = mem.m[TIMER_CONTROL as usize];
+        let mut tc = TimerControl(&mut cpy);
+        let mut mc = mem.timer_control();
+        assert_eq!(tc.clk(), mc.clk());
+
+        tc.enable();
+        mc.enable();
+        assert_eq!(tc.is_enabled(), mc.is_enabled());
+
+        tc.disable();
+        mc.disable();
+        assert_eq!(tc.is_enabled(), mc.is_enabled());
+
+        tc.clk_select(ClockSelect::Fast);
+        mc.clk_select(ClockSelect::Fast);
+        assert_eq!(tc.clk(), mc.clk());
+
+        mc.clk_select(ClockSelect::Hyper);
+        assert_ne!(tc.clk(), mc.clk());
     }
 }
