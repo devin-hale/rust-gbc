@@ -62,6 +62,7 @@ pub struct CPU {
     n8: Option<u8>,
 
     div_cycles: u64,
+    timer_cycles: u64,
 }
 
 #[derive(PartialEq, Eq)]
@@ -215,6 +216,7 @@ impl CPU {
             n8: None,
             n16: None,
             div_cycles: 0,
+            timer_cycles: 0,
         }
     }
 
@@ -443,6 +445,17 @@ impl CPU {
             if self.div_cycles >= CYCLES_PER_DIV_TICK {
                 self.mem().inc_div();
                 self.div_cycles = self.div_cycles.saturating_sub(CYCLES_PER_DIV_TICK);
+            }
+        }
+    }
+
+    pub fn handle_timer(&mut self, cycles: u8) {
+        if !self.stop {
+            let cycles_per_tick = self.mem().timer_control().clk().cycles();
+            self.timer_cycles = self.timer_cycles.wrapping_add(cycles as u64);
+            if self.timer_cycles >= cycles_per_tick {
+                self.mem().inc_timer();
+                self.timer_cycles = self.timer_cycles.saturating_sub(cycles_per_tick);
             }
         }
     }
@@ -1603,7 +1616,7 @@ mod test {
             assert_eq!(i.op(), Operation::LDH(LDH::Mem(Mem::N8)));
 
             cpu.execute(i);
-            if (addr as u16) | 0xFF00 == DIV {
+            if (addr as u16) | 0xFF00 == (DIV as u16) {
                 assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), 0);
             } else {
                 assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), val);

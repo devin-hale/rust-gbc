@@ -2,43 +2,45 @@ use std::sync::{Arc, Mutex};
 
 use crate::utils::bit;
 
-const ROM_BANK_0_START: u16 = 0x0000;
-const ROM_BANK_0_END: u16 = 0x03FFF;
+const ROM_BANK_0_START: usize = 0x0000;
+const ROM_BANK_0_END: usize = 0x03FFF;
 
-const ROM_BANK_1_START: u16 = 0x4000;
-const ROM_BANK_1_END: u16 = 0x7FFF;
+const ROM_BANK_1_START: usize = 0x4000;
+const ROM_BANK_1_END: usize = 0x7FFF;
 
-const VRAM_START: u16 = 0x8000;
-const VRAM_END: u16 = 0x9FFF;
+const VRAM_START: usize = 0x8000;
+const VRAM_END: usize = 0x9FFF;
 
-const ERAM_START: u16 = 0xA000;
-const ERAM_END: u16 = 0xBFFF;
+const ERAM_START: usize = 0xA000;
+const ERAM_END: usize = 0xBFFF;
 
-const WRAM_0_START: u16 = 0xC000;
-const WRAM_0_END: u16 = 0xCFFF;
+const WRAM_0_START: usize = 0xC000;
+const WRAM_0_END: usize = 0xCFFF;
 
-const WRAM_1_START: u16 = 0xD000;
-const WRAM_1_END: u16 = 0xDFFF;
+const WRAM_1_START: usize = 0xD000;
+const WRAM_1_END: usize = 0xDFFF;
 
-const ECHO_RAM_START: u16 = 0xE000;
-const ECHO_RAM_END: u16 = 0xFDFF;
+const ECHO_RAM_START: usize = 0xE000;
+const ECHO_RAM_END: usize = 0xFDFF;
 
-const OAM_START: u16 = 0xFE00;
-const OAM_END: u16 = 0xFE9F;
+const OAM_START: usize = 0xFE00;
+const OAM_END: usize = 0xFE9F;
 
-const UNUSED_START: u16 = 0xFEA0;
-const UNUSED_END: u16 = 0xFEFF;
+const UNUSED_START: usize = 0xFEA0;
+const UNUSED_END: usize = 0xFEFF;
 
-const IO_START: u16 = 0xFF00;
-pub const DIV: u16 = 0xFF04;
-const TIMER_CONTROL: u16 = 0xFF04;
-const IF_REGISTER: u16 = 0xFF0F;
-const IO_END: u16 = 0xFF7F;
+const IO_START: usize = 0xFF00;
+pub const DIV: usize = 0xFF04;
+const TIMER_COUNTER: usize = 0xFF05;
+const TIMER_MODULO: usize = 0xFF05;
+const TIMER_CONTROL: usize = 0xFF07;
+const IF_REGISTER: usize = 0xFF0F;
+const IO_END: usize = 0xFF7F;
 
-const HRAM_START: u16 = 0xFF80;
-const HRAM_END: u16 = 0xFFFE;
+const HRAM_START: usize = 0xFF80;
+const HRAM_END: usize = 0xFFFE;
 
-const IE_REGISTER: u16 = 0xFFFF;
+const IE_REGISTER: usize = 0xFFFF;
 
 pub struct Memory {
     m: [u8; 0x1_0000],
@@ -52,7 +54,7 @@ impl<'a> IO<'a> {
     }
 }
 
-const DMG_INIT: [(u16, u8); 40] = [
+const DMG_INIT: [(usize, u8); 40] = [
     (0xFF00, 0xCF),
     (0xFF01, 0x00),
     (0xFF02, 0x7E),
@@ -221,7 +223,7 @@ impl From<u8> for ClockSelect {
 }
 
 impl ClockSelect {
-    fn cycles(&self) -> u64 {
+    pub fn cycles(&self) -> u64 {
         match self {
             ClockSelect::Hyper => 256_000_000,
             ClockSelect::Slow => 4_000_000,
@@ -242,7 +244,7 @@ impl Memory {
 
     pub fn init(&mut self) {
         for av in DMG_INIT {
-            self.m[av.0 as usize] = av.1;
+            self.m[av.0] = av.1;
         }
     }
 
@@ -258,7 +260,7 @@ impl Memory {
 
     pub fn write(&mut self, addr: u16, data: u8) {
         let mut d = data;
-        if addr == DIV {
+        if addr as usize == DIV {
             d = 0;
         }
         self.m[addr as usize] = d;
@@ -268,10 +270,10 @@ impl Memory {
         let mut low = (data & 0x00FF) as u8;
         let mut high = ((data & 0xFF00) >> 8) as u8;
 
-        if addr == DIV {
+        if addr as usize == DIV {
             low = 0;
         }
-        if addr + 1 == DIV {
+        if (addr as usize) + 1 == DIV {
             high = 0;
         }
 
@@ -285,7 +287,7 @@ impl Memory {
     }
 
     pub fn dec(&mut self, addr: u16) -> u8 {
-        if addr == DIV {
+        if addr as usize == DIV {
             self.m[addr as usize] = 0;
             return 0;
         }
@@ -321,33 +323,48 @@ impl Memory {
     }
 
     pub fn io<'i>(&'i mut self) -> IO<'i> {
-        IO(&mut self.m[(IO_START as usize)..(IO_END as usize)])
+        IO(&mut self.m[(IO_START)..(IO_END)])
     }
 
     pub fn interrupt_enable<'i>(&'i mut self) -> InterruptRegister<'i> {
-        InterruptRegister(&mut self.m[IE_REGISTER as usize])
+        InterruptRegister(&mut self.m[IE_REGISTER])
     }
 
     pub fn interrupt_flags<'i>(&'i mut self) -> InterruptRegister<'i> {
-        InterruptRegister(&mut self.m[IF_REGISTER as usize])
+        InterruptRegister(&mut self.m[IF_REGISTER])
     }
 
     pub fn div(&self) -> u8 {
-        self.m[DIV as usize]
+        self.m[DIV]
     }
 
     pub fn inc_div(&mut self) {
         let mut div = self.div();
         div = div.wrapping_add(1);
-        self.m[DIV as usize] = div;
+        self.m[DIV] = div;
     }
 
     pub fn reset_div(&mut self) {
-        self.m[DIV as usize] = 0;
+        self.m[DIV] = 0;
     }
 
     pub fn timer_control<'t>(&'t mut self) -> TimerControl<'t> {
-        TimerControl(&mut self.m[TIMER_CONTROL as usize])
+        TimerControl(&mut self.m[TIMER_CONTROL])
+    }
+
+    pub fn inc_timer(&mut self) {
+        let val = self.m[TIMER_COUNTER];
+        match val.checked_add(1) {
+            Some(v) => self.m[TIMER_COUNTER] = v,
+            None => {
+                self.m[TIMER_COUNTER] = self.tma();
+                self.interrupt_flags().timer_set();
+            }
+        }
+    }
+
+    pub fn tma(&self) -> u8 {
+        self.m[TIMER_MODULO]
     }
 }
 
@@ -432,7 +449,7 @@ mod test {
     fn mem_io() {
         let mut mem = Memory::new();
         let io = mem.io();
-        let len = (IO_END - IO_START) as usize;
+        let len = IO_END - IO_START;
         assert_eq!(io.len(), len);
     }
 
@@ -440,7 +457,7 @@ mod test {
     fn timer_control() {
         let mut mem = Memory::new();
         mem.init();
-        let mut cpy = mem.m[TIMER_CONTROL as usize];
+        let mut cpy = mem.m[TIMER_CONTROL];
         let mut tc = TimerControl(&mut cpy);
         let mut mc = mem.timer_control();
         assert_eq!(tc.clk(), mc.clk());
@@ -459,5 +476,18 @@ mod test {
 
         mc.clk_select(ClockSelect::Hyper);
         assert_ne!(tc.clk(), mc.clk());
+    }
+
+    #[test]
+    fn timer_inc() {
+        let mut mem = Memory::new();
+        mem.init();
+        assert!(!mem.interrupt_flags().timer());
+        mem.inc_timer();
+        assert!(!mem.interrupt_flags().timer());
+        mem.m[TIMER_COUNTER] = 255;
+        mem.inc_timer();
+        assert!(mem.interrupt_flags().timer());
+        assert_eq!(mem.m[TIMER_COUNTER], mem.tma());
     }
 }
