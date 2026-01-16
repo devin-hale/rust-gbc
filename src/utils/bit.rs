@@ -1,31 +1,39 @@
+#[inline(always)]
 pub fn get(byte: u8, n: u8) -> u8 {
     (byte >> n) & 1
 }
 
+#[inline(always)]
 pub fn is_set(byte: u8, n: u8) -> bool {
     get(byte, n) == 1
 }
 
+#[inline(always)]
 pub fn get_u16(word: u16, n: u8) -> u16 {
     (word >> n) & 1
 }
 
+#[inline(always)]
 pub fn is_set_u16(word: u16, n: u8) -> bool {
     get_u16(word, n) == 1
 }
 
+#[inline(always)]
 pub fn set(byte: &mut u8, n: u8) {
     *byte = *byte | (1 << n)
 }
 
+#[inline(always)]
 pub fn reset(byte: &mut u8, n: u8) {
     *byte = *byte & !(1 << n)
 }
 
+#[inline(always)]
 pub fn toggle(byte: &mut u8, n: u8) {
     *byte = *byte ^ (1 << n)
 }
 
+#[inline(always)]
 fn fill_to(n: u8) -> u8 {
     let mut byte = 0;
     for _ in 0u8..=n {
@@ -35,6 +43,7 @@ fn fill_to(n: u8) -> u8 {
     byte
 }
 
+#[inline(always)]
 fn fill_to_word(n: u16) -> u16 {
     let mut word = 0;
     for _ in 0u16..=n {
@@ -44,6 +53,7 @@ fn fill_to_word(n: u16) -> u16 {
     word
 }
 
+#[inline(always)]
 pub fn check_borrow(a: u8, b: u8, n: u8) -> bool {
     if n == 8 {
         return b > a;
@@ -55,6 +65,7 @@ pub fn check_borrow(a: u8, b: u8, n: u8) -> bool {
     is_set(a, n) && !is_set(r, n)
 }
 
+#[inline(always)]
 pub fn check_borrow_word(a: u16, b: u16, n: u8) -> bool {
     if n == 16 {
         return b > a;
@@ -66,6 +77,7 @@ pub fn check_borrow_word(a: u16, b: u16, n: u8) -> bool {
     is_set_u16(a, n) && !is_set_u16(r, n)
 }
 
+#[inline(always)]
 pub fn check_overflow(a: u8, b: u8, n: u8) -> bool {
     let bit = 1 << n;
     let a = a & bit;
@@ -77,6 +89,7 @@ pub fn check_overflow(a: u8, b: u8, n: u8) -> bool {
     }
 }
 
+#[inline(always)]
 pub fn check_overflow_word(a: u16, b: u16, n: u8) -> bool {
     let bit = 1 << n;
     let a = a & bit;

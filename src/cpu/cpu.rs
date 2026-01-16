@@ -3,12 +3,12 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-pub const MASTER_CLOCK: u32 = 4_194_304; // Hz
-pub const T_CYCLE_PERIOD: f64 = 1_000_000_000f64 / MASTER_CLOCK as f64; // ns
-pub const SYSTEM_CLOCK: u32 = MASTER_CLOCK / 4;
-
-const DIV_CLOCK: u32 = 16_384;
-const DIV_PERIOD: f64 = 1f64 / DIV_CLOCK as f64;
+pub const MASTER_CLOCK_FREQ: u64 = 4_194_304; // Hz
+pub const T_CYCLE_PRD_NS: u64 = (1 * 1000 * 1000 * 1000) / MASTER_CLOCK_FREQ; // ns
+pub const DIV_CLOCK_FREQ: u64 = 16_384; // Hz
+pub const DIV_CLOCK_PRD_NS: u64 = (1 * 1000 * 1000 * 1000) / DIV_CLOCK_FREQ; // ns
+const CYCLES_PER_DIV_TICK: u64 = DIV_CLOCK_PRD_NS / T_CYCLE_PRD_NS;
+pub const SYSTEM_CLOCK: u64 = MASTER_CLOCK_FREQ / 4;
 
 use thiserror::Error;
 
@@ -60,6 +60,8 @@ pub struct CPU {
 
     n16: Option<u16>,
     n8: Option<u8>,
+
+    div_cycles: u64,
 }
 
 #[derive(PartialEq, Eq)]
@@ -190,6 +192,7 @@ impl<'r> Word<'r> {
 
 impl CPU {
     pub fn new(mem: &Arc<Mutex<Memory>>) -> CPU {
+        mem.lock().unwrap().init();
         CPU {
             a: Register::with_val(0x00),
             f: Register::with_val(0b1000_0000),
@@ -211,6 +214,7 @@ impl CPU {
             ime: false,
             n8: None,
             n16: None,
+            div_cycles: 0,
         }
     }
 
@@ -432,6 +436,15 @@ impl CPU {
         i.cycles()
     }
 
+    pub fn handle_div(&mut self, cycles: u8) {
+        self.div_cycles = self.div_cycles.wrapping_add(cycles as u64);
+
+        if self.div_cycles >= CYCLES_PER_DIV_TICK {
+            self.mem().inc_div();
+            self.div_cycles = self.div_cycles.saturating_sub(CYCLES_PER_DIV_TICK);
+        }
+    }
+
     pub fn tick(&mut self) -> Result<u8, Error> {
         if self.stop {
             // check for interrupt
@@ -453,6 +466,8 @@ impl CPU {
             let i = self.decode(opcode)?;
             self.i = Some(i);
         }
+        self.handle_div(cycles);
+
         Ok(cycles)
     }
 
@@ -3161,5 +3176,17 @@ mod test {
         assert!(!cpu.flag(Flag::N));
         assert_eq!(cpu.flag(Flag::H), cf);
         assert_eq!(cpu.flag(Flag::C), !cf);
+    }
+
+    #[test]
+    fn div_tick() {
+        let (mut cpu, mem) = setup();
+        let d = mem.lock().unwrap().div();
+        cpu.tick().unwrap();
+        let mut cycles = 0;
+        while cycles < (CYCLES_PER_DIV_TICK + 4) {
+            cycles += cpu.tick().unwrap() as u64;
+        }
+        assert_eq!(mem.lock().unwrap().div(), d + 1);
     }
 }

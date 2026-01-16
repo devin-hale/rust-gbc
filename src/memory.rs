@@ -51,6 +51,49 @@ impl<'a> IO<'a> {
     }
 }
 
+const DMG_INIT: [(u16, u8); 40] = [
+    (0xFF00, 0xCF),
+    (0xFF01, 0x00),
+    (0xFF02, 0x7E),
+    (0xFF04, 0xAB),
+    (0xFF05, 0x00),
+    (0xFF06, 0x00),
+    (0xFF07, 0xF8),
+    (0xFF0F, 0xE1),
+    (0xFF10, 0x80),
+    (0xFF11, 0xBF),
+    (0xFF12, 0xF3),
+    (0xFF13, 0xFF),
+    (0xFF14, 0xBF),
+    (0xFF16, 0x3F),
+    (0xFF17, 0x00),
+    (0xFF18, 0xFF),
+    (0xFF19, 0xBF),
+    (0xFF1A, 0x7F),
+    (0xFF1B, 0xFF),
+    (0xFF1C, 0x9F),
+    (0xFF1D, 0xFF),
+    (0xFF1E, 0xBF),
+    (0xFF20, 0xFF),
+    (0xFF21, 0x00),
+    (0xFF22, 0x00),
+    (0xFF23, 0xBF),
+    (0xFF24, 0x77),
+    (0xFF25, 0xF3),
+    (0xFF26, 0xF1),
+    (0xFF40, 0x91),
+    (0xFF41, 0x85),
+    (0xFF42, 0x00),
+    (0xFF43, 0x00),
+    (0xFF44, 0x00),
+    (0xFF45, 0x00),
+    (0xFF46, 0xFF),
+    (0xFF47, 0xFC),
+    (0xFF4A, 0x00),
+    (0xFF4B, 0x00),
+    (0xFFFF, 0x00),
+];
+
 pub struct InterruptRegister<'i>(&'i mut u8);
 
 impl<'i> InterruptRegister<'i> {
@@ -58,58 +101,72 @@ impl<'i> InterruptRegister<'i> {
         bit::is_set(*self.0, 0)
     }
 
+    #[inline(always)]
     pub fn vblank_set(&mut self) {
         bit::set(self.0, 0)
     }
 
+    #[inline(always)]
     pub fn vblank_reset(&mut self) {
         bit::reset(self.0, 0)
     }
 
+    #[inline(always)]
     pub fn lcd(&self) -> bool {
         bit::is_set(*self.0, 1)
     }
 
+    #[inline(always)]
     pub fn lcd_set(&mut self) {
         bit::set(self.0, 1)
     }
 
+    #[inline(always)]
     pub fn lcd_reset(&mut self) {
         bit::reset(self.0, 1)
     }
 
+    #[inline(always)]
     pub fn timer(&self) -> bool {
         bit::is_set(*self.0, 2)
     }
 
+    #[inline(always)]
     pub fn timer_set(&mut self) {
         bit::set(self.0, 2)
     }
 
+    #[inline(always)]
     pub fn timer_reset(&mut self) {
         bit::reset(self.0, 2)
     }
 
+    #[inline(always)]
     pub fn serial(&self) -> bool {
         bit::is_set(*self.0, 3)
     }
 
+    #[inline(always)]
     pub fn serial_set(&mut self) {
         bit::set(self.0, 3)
     }
 
+    #[inline(always)]
     pub fn serial_reset(&mut self) {
         bit::reset(self.0, 3)
     }
 
+    #[inline(always)]
     pub fn joypad(&self) -> bool {
         bit::is_set(*self.0, 4)
     }
 
+    #[inline(always)]
     pub fn joypad_set(&mut self) {
         bit::set(self.0, 4)
     }
 
+    #[inline(always)]
     pub fn joypad_reset(&mut self) {
         bit::reset(self.0, 4)
     }
@@ -122,6 +179,12 @@ impl Memory {
 
     pub fn arc() -> Arc<Mutex<Memory>> {
         Arc::new(Mutex::new(Memory::new()))
+    }
+
+    pub fn init(&mut self) {
+        for av in DMG_INIT {
+            self.m[av.0 as usize] = av.1;
+        }
     }
 
     pub fn read(&self, addr: u16) -> u8 {
