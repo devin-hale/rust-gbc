@@ -94,13 +94,25 @@ pub enum Flag {
     C,
 }
 
-enum Interrupt {
+#[derive(Clone, Copy)]
+pub enum Interrupt {
     VBlank,
-    LCD,
     STAT,
     Timer,
     Serial,
     Joypad,
+}
+
+impl Interrupt {
+    fn addr(&self) -> u8 {
+        match self {
+            Interrupt::VBlank => 0x40,
+            Interrupt::STAT => 0x48,
+            Interrupt::Timer => 0x50,
+            Interrupt::Serial => 0x58,
+            Interrupt::Joypad => 0x60,
+        }
+    }
 }
 
 struct Register(u8);
@@ -1260,7 +1272,7 @@ impl CPU {
             return Some(Interrupt::VBlank);
         }
         if iflags.lcd() {
-            return Some(Interrupt::LCD);
+            return Some(Interrupt::STAT);
         }
         if iflags.timer() {
             return Some(Interrupt::Timer);
@@ -1272,6 +1284,13 @@ impl CPU {
             return Some(Interrupt::Joypad);
         }
         None
+    }
+
+    fn handle_interrupt(&mut self, i: Interrupt) {
+        self.mem().interrupt_flags().reset(i);
+        self.ime = false;
+        self.push(self.pc);
+        self.pc = i.addr() as u16;
     }
 }
 

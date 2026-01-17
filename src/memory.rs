@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::utils::bit;
+use crate::{cpu::Interrupt, utils::bit};
 
 const ROM_BANK_0_START: usize = 0x0000;
 const ROM_BANK_0_END: usize = 0x03FFF;
@@ -172,6 +172,26 @@ impl<'i> InterruptRegister<'i> {
     #[inline(always)]
     pub fn joypad_reset(&mut self) {
         bit::reset(self.0, 4)
+    }
+
+    pub fn reset(&mut self, i: Interrupt) {
+        match i {
+            Interrupt::VBlank => self.vblank_reset(),
+            Interrupt::STAT => self.lcd_reset(),
+            Interrupt::Serial => self.serial_reset(),
+            Interrupt::Timer => self.timer_reset(),
+            Interrupt::Joypad => self.joypad_reset(),
+        }
+    }
+
+    pub fn set(&mut self, i: Interrupt) {
+        match i {
+            Interrupt::VBlank => self.vblank_set(),
+            Interrupt::STAT => self.lcd_set(),
+            Interrupt::Serial => self.serial_set(),
+            Interrupt::Timer => self.timer_set(),
+            Interrupt::Joypad => self.joypad_set(),
+        }
     }
 }
 

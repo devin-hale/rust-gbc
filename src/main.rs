@@ -1,19 +1,42 @@
 #![allow(dead_code)]
 
+use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
+
 mod cpu;
 mod memory;
 mod utils;
 
 fn main() {
-    //let start = Instant::now();
-    //let mut total_cycles = 0u128;
-    //while total_cycles <= 1_000_000 {
-    //    let cycles = cpu.tick().unwrap();
-    //    total_cycles += cycles as u128;
-    //    //thread::sleep(t_cycle * (cycles as u32));
-    //}
+    let ctx = sdl2::init().unwrap();
+    let vs = ctx.video().unwrap();
 
-    //let el = start.elapsed();
-    //println!("time elapsed: {:?}", el);
-    //println!("avg: {} cycles/s", total_cycles / el.as_secs() as u128);
+    let window = vs
+        .window("rust-gbc", 300, 300)
+        .position_centered()
+        .opengl()
+        .build()
+        .unwrap();
+    let mut canvas = window.into_canvas().build().unwrap();
+
+    let mut event_pump = ctx.event_pump().unwrap();
+    let mut running = true;
+
+    while running {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => {
+                    running = false;
+                }
+                _ => {}
+            }
+        }
+
+        canvas.set_draw_color(Color::BLACK);
+        canvas.clear();
+        canvas.present();
+    }
 }
