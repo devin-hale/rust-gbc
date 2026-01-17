@@ -478,10 +478,14 @@ impl CPU {
             return Ok(4);
         }
         if self.halt {
-            // check for reset signal
-            return Ok(4);
+            return match self.query_interrupt() {
+                Some(int) => Ok(self.handle_interrupt(int)),
+                None => Ok(0),
+            };
         }
-
+        if let Some(int) = self.query_interrupt() {
+            return Ok(self.handle_interrupt(int));
+        }
         self.handle_ic_0();
         let mut cycles = 0;
         if self.i.is_some() {
@@ -1286,11 +1290,15 @@ impl CPU {
         None
     }
 
-    fn handle_interrupt(&mut self, i: Interrupt) {
+    fn handle_interrupt(&mut self, i: Interrupt) -> u8 {
+        // 8 t cycles
         self.mem().interrupt_flags().reset(i);
+        // 8 t cycles
         self.ime = false;
         self.push(self.pc);
+        // 4 t cycles
         self.pc = i.addr() as u16;
+        20
     }
 }
 

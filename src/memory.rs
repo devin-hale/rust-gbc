@@ -9,6 +9,12 @@ const ROM_BANK_1_START: usize = 0x4000;
 const ROM_BANK_1_END: usize = 0x7FFF;
 
 const VRAM_START: usize = 0x8000;
+pub const VRAM_BLOCK_0_START: usize = VRAM_START;
+pub const VRAM_BLOCK_0_END: usize = 0x87FF;
+pub const VRAM_BLOCK_1_START: usize = 0x8800;
+pub const VRAM_BLOCK_1_END: usize = 0x8FFF;
+pub const VRAM_BLOCK_2_START: usize = 0x9000;
+pub const VRAM_BLOCK_2_END: usize = 0x97FF;
 const VRAM_END: usize = 0x9FFF;
 
 const ERAM_START: usize = 0xA000;
@@ -35,6 +41,10 @@ const TIMER_COUNTER: usize = 0xFF05;
 const TIMER_MODULO: usize = 0xFF05;
 const TIMER_CONTROL: usize = 0xFF07;
 const IF_REGISTER: usize = 0xFF0F;
+const LCDC: usize = 0xFF40;
+const OBP0: usize = 0xFF48;
+const OBP1: usize = 0xFF49;
+const BGP: usize = 0xFF47;
 const IO_END: usize = 0xFF7F;
 
 const HRAM_START: usize = 0xFF80;
@@ -385,6 +395,26 @@ impl Memory {
 
     pub fn tma(&self) -> u8 {
         self.m[TIMER_MODULO]
+    }
+
+    pub fn vram(&self) -> &[u8] {
+        &self.m[VRAM_START..VRAM_END]
+    }
+
+    pub fn lcdc(&self) -> u8 {
+        self.m[LCDC]
+    }
+
+    pub fn bgp(&self) -> u8 {
+        self.m[BGP]
+    }
+
+    pub fn obj_palette_0(&self) -> u8 {
+        self.m[OBP0]
+    }
+
+    pub fn obj_palette_1(&self) -> u8 {
+        self.m[OBP1]
     }
 }
 

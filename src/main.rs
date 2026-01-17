@@ -3,6 +3,7 @@
 use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
 
 mod cpu;
+mod ppu;
 mod memory;
 mod utils;
 
