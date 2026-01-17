@@ -1,19 +1,35 @@
 #![allow(dead_code)]
 
-use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
+use sdl2::{
+    event::{Event, WindowEvent},
+    keyboard::Keycode,
+    pixels::{Color, PixelFormatEnum},
+};
 
 mod cpu;
-mod ppu;
 mod memory;
+mod ppu;
 mod utils;
+
+const WINDOW_W: u32 = 320;
+const WINDOW_H: u32 = 300;
+
+const GB_LCD_W: u32 = 160;
+const GB_LCD_H: u32 = 150;
+
+const PIXEL_W: u32 = WINDOW_W / GB_LCD_W;
+const PIXEL_H: u32 = WINDOW_H / GB_LCD_H;
 
 fn main() {
     let ctx = sdl2::init().unwrap();
     let vs = ctx.video().unwrap();
+    dbg!(PIXEL_W);
+    dbg!(PIXEL_H);
 
     let window = vs
-        .window("rust-gbc", 300, 300)
+        .window("rust-gbc", WINDOW_W, WINDOW_H)
         .position_centered()
+        .resizable()
         .opengl()
         .build()
         .unwrap();
@@ -32,12 +48,36 @@ fn main() {
                 } => {
                     running = false;
                 }
+                Event::Window { win_event, .. } => match win_event {
+                    WindowEvent::Resized(w, h) => {
+                        canvas.window_mut().set_size(w as u32, h as u32).unwrap();
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }
 
         canvas.set_draw_color(Color::BLACK);
         canvas.clear();
+
+        let tc = canvas.texture_creator();
+        let mut t = tc
+            .create_texture_streaming(PixelFormatEnum::RGB24, GB_LCD_W, GB_LCD_H)
+            .unwrap();
+        t.with_lock(None, |buf: &mut [u8], pitch: usize| {
+            for y in 0..(GB_LCD_H as usize) {
+                for x in 0..(GB_LCD_W as usize) {
+                    let offset = (y * pitch) + x * 3;
+                    buf[offset] = x as u8;
+                    buf[offset + 1] = x as u8;
+                    buf[offset + 2] = x as u8;
+                }
+            }
+        })
+        .unwrap();
+        canvas.copy(&t, None, None).unwrap();
+
         canvas.present();
     }
 }
