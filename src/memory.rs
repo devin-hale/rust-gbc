@@ -1,4 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    ops::{Index, IndexMut},
+    slice::SliceIndex,
+    sync::{Arc, Mutex},
+};
 
 use crate::{cpu::Interrupt, utils::bit};
 
@@ -397,8 +401,12 @@ impl Memory {
         self.m[TIMER_MODULO]
     }
 
-    pub fn vram(&self) -> &[u8] {
-        &self.m[VRAM_START..VRAM_END]
+    pub fn vram(&self) -> [u8; 4096] {
+        let mut r = [0u8; 4096];
+        for addr in VRAM_START..=VRAM_END {
+            r[addr - VRAM_START] = self.m[addr];
+        }
+        r
     }
 
     pub fn lcdc(&self) -> u8 {
@@ -415,6 +423,22 @@ impl Memory {
 
     pub fn obj_palette_1(&self) -> u8 {
         self.m[OBP1]
+    }
+}
+
+impl<Idx> Index<Idx> for Memory
+where
+    Idx: SliceIndex<[u8]>,
+{
+    type Output = Idx::Output;
+    fn index(&self, index: Idx) -> &Self::Output {
+        &self.m[index]
+    }
+}
+
+impl IndexMut<usize> for Memory {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.m[index]
     }
 }
 
