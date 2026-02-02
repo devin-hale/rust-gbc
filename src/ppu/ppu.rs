@@ -1,21 +1,28 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::{
-    memory::{Memory, VRAM_BLOCK_0_START},
-    utils::bit,
-};
+use crate::{memory::Memory, utils::bit};
 
-pub const BG_TILE_DATA_LEN: usize = 0xFFF;
+pub const VRAM_START: usize = 0x8000;
+pub const VRAM_BLOCK_0_START: usize = VRAM_START;
+pub const VRAM_BLOCK_0_END: usize = 0x87FF;
+pub const VRAM_BLOCK_1_START: usize = 0x8800;
+pub const VRAM_BLOCK_1_END: usize = 0x8FFF;
+pub const VRAM_BLOCK_2_START: usize = 0x9000;
+pub const VRAM_BLOCK_2_END: usize = 0x97FF;
+pub const VRAM_END: usize = 0x9FFF;
+pub const VRAM_SIZE: usize = VRAM_END - VRAM_START + 1;
+
 pub const BG_TILE_DATA_0_START: usize = 0x8800;
 pub const BG_TILE_DATA_0_END: usize = 0x97FF;
 pub const BG_TILE_DATA_1_START: usize = VRAM_BLOCK_0_START;
 pub const BG_TILE_DATA_1_END: usize = 0x8FFF;
+pub const BG_TILE_DATA_SIZE: usize = BG_TILE_DATA_1_END - BG_TILE_DATA_1_START + 1;
 
-pub const BG_TILE_MAP_LEN: usize = 0x3FF;
 pub const BG_TILE_MAP_0_START: usize = 0x9800;
 pub const BG_TILE_MAP_0_END: usize = 0x9BFF;
 pub const BG_TILE_MAP_1_START: usize = 0x9C00;
 pub const BG_TILE_MAP_1_END: usize = 0x9FFF;
+pub const BG_TILE_MAP_SIZE: usize = BG_TILE_MAP_0_END - BG_TILE_MAP_0_START + 1;
 
 pub const OBJ_TILE_DATA_START: usize = 0x8000;
 pub const OBJ_TILE_DATA_END: usize = 0x8FFF;
@@ -28,7 +35,112 @@ pub struct PPU {
     mem: Arc<Mutex<Memory>>,
 }
 
-enum Color {
+impl PPU {
+    fn mem<'m>(&'m mut self) -> MutexGuard<'m, Memory> {
+        self.mem.lock().expect("error acquiring Memory mutex lock")
+    }
+
+    fn lcd_ppu_en(&mut self) -> bool {
+        bit::is_set(self.mem().lcdc(), 7)
+    }
+
+    //fn window_tile_map(&mut self) -> TileArea {
+    //    if bit::is_set(self.mem().lcdc(), 6) {
+    //        return TileArea::High;
+    //    }
+    //    TileArea::Low
+    //}
+
+    //fn window_enable(&mut self) -> bool {
+    //    bit::is_set(self.mem().lcdc(), 5)
+    //}
+
+    //fn background_area(&mut self) -> TileArea {
+    //    if bit::is_set(self.mem().lcdc(), 4) {
+    //        return TileArea::High;
+    //    }
+    //    TileArea::Low
+    //}
+
+    fn bg_tile_data(&mut self) -> Vec<Tile> {
+        let bg_mode = bit::is_set(self.mem().lcdc(), 4);
+        let mem = self.mem();
+        let td_raw;
+        if bg_mode {
+            td_raw = &mem[BG_TILE_DATA_1_START..BG_TILE_DATA_1_END];
+        } else {
+            td_raw = &mem[BG_TILE_DATA_0_START..BG_TILE_DATA_0_END];
+        }
+        assert_eq!(td_raw.len(), BG_TILE_DATA_SIZE);
+        let mut td: Vec<Tile> = vec![];
+        for i in 0..(BG_TILE_DATA_SIZE / 16) {
+            let offset = i * 16;
+            let tile: Tile = (&td_raw[offset..(offset + 16)]).into();
+            td.push(tile);
+        }
+        assert_eq!(td.len(), BG_TILE_DATA_SIZE / 16);
+        td
+    }
+
+    fn bg_tile_map(&mut self) -> [u8; BG_TILE_MAP_SIZE] {
+        let bg_mode = bit::is_set(self.mem().lcdc(), 3);
+        let mem = self.mem();
+        let mut tm_raw = [0u8; BG_TILE_MAP_SIZE];
+        if bg_mode {
+            tm_raw.copy_from_slice(&mem[BG_TILE_MAP_1_START..BG_TILE_MAP_1_END]);
+        } else {
+            tm_raw.copy_from_slice(&mem[BG_TILE_MAP_0_START..BG_TILE_MAP_0_END]);
+        }
+        tm_raw
+    }
+
+    fn bg_viewport(&mut self) -> (u8, u8) {
+        let sy = self.mem()[SCY].wrapping_add(143);
+        let sx = self.mem()[SCX].wrapping_add(159);
+        (sy, sx)
+    }
+
+    // 0 == 8x8
+    // 1 == 8x16
+    fn obj_size(&mut self) -> bool {
+        bit::is_set(self.mem().lcdc(), 2)
+    }
+
+    fn obj_enable(&mut self) -> bool {
+        bit::is_set(self.mem().lcdc(), 1)
+    }
+
+    fn bg_window_enable(&mut self) -> bool {
+        bit::is_set(self.mem().lcdc(), 0)
+    }
+
+    fn bg_palette(&mut self) -> Palette {
+        self.mem().bg_pal().into()
+    }
+
+    fn obj_palette_0(&mut self) -> Palette {
+        self.mem().obj_pal_0().into()
+    }
+
+    fn obj_palette_1(&mut self) -> Palette {
+        self.mem().obj_pal_1().into()
+    }
+
+    fn get_fb(&mut self) {
+        let td = self.bg_tile_data();
+        let tmap = self.bg_tile_map();
+
+        let (b, r) = self.bg_viewport();
+
+        for t in tmap {
+            
+        }
+
+        //fb
+    }
+}
+
+pub enum Color {
     White,
     LightGrey,
     DarkGrey,
@@ -90,108 +202,6 @@ impl Palette {
 impl From<u8> for Palette {
     fn from(value: u8) -> Self {
         Palette(value)
-    }
-}
-
-impl PPU {
-    fn mem<'m>(&'m mut self) -> MutexGuard<'m, Memory> {
-        self.mem.lock().expect("error acquiring Memory mutex lock")
-    }
-
-    fn lcd_ppu_en(&mut self) -> bool {
-        bit::is_set(self.mem().lcdc(), 7)
-    }
-
-    //fn window_tile_map(&mut self) -> TileArea {
-    //    if bit::is_set(self.mem().lcdc(), 6) {
-    //        return TileArea::High;
-    //    }
-    //    TileArea::Low
-    //}
-
-    //fn window_enable(&mut self) -> bool {
-    //    bit::is_set(self.mem().lcdc(), 5)
-    //}
-
-    //fn background_area(&mut self) -> TileArea {
-    //    if bit::is_set(self.mem().lcdc(), 4) {
-    //        return TileArea::High;
-    //    }
-    //    TileArea::Low
-    //}
-
-    fn bg_tile_data(&mut self) -> Vec<Tile> {
-        let bg_mode = bit::is_set(self.mem().lcdc(), 4);
-        let mem = self.mem();
-        let td_raw;
-        if bg_mode {
-            td_raw = &mem[BG_TILE_DATA_1_START..BG_TILE_DATA_1_END];
-        } else {
-            td_raw = &mem[BG_TILE_DATA_0_START..BG_TILE_DATA_0_END];
-        }
-        assert_eq!(td_raw.len(), BG_TILE_DATA_LEN);
-        let mut td: Vec<Tile> = vec![];
-        for i in 0..(BG_TILE_DATA_LEN / 16) {
-            let offset = i * 16;
-            let tile: Tile = (&td_raw[offset..(offset + 16)]).into();
-            td.push(tile);
-        }
-        assert_eq!(td.len(), BG_TILE_DATA_LEN / 16);
-        td
-    }
-
-    fn bg_tile_map(&mut self) -> [u8; 1024] {
-        let bg_mode = bit::is_set(self.mem().lcdc(), 3);
-        let mem = self.mem();
-        let mut tm_raw = [0u8; 1024];
-        if bg_mode {
-            tm_raw.copy_from_slice(&mem[BG_TILE_MAP_1_START..BG_TILE_MAP_1_END]);
-        } else {
-            tm_raw.copy_from_slice(&mem[BG_TILE_MAP_0_START..BG_TILE_MAP_0_END]);
-        }
-        tm_raw
-    }
-
-    fn bg_viewport(&mut self) -> (u8, u8) {
-        let sy = self.mem()[SCY].wrapping_add(143);
-        let sx = self.mem()[SCX].wrapping_add(159);
-        (sy, sx)
-    }
-
-    // 0 == 8x8
-    // 1 == 8x16
-    fn obj_size(&mut self) -> bool {
-        bit::is_set(self.mem().lcdc(), 2)
-    }
-
-    fn obj_enable(&mut self) -> bool {
-        bit::is_set(self.mem().lcdc(), 1)
-    }
-
-    fn bg_window_enable(&mut self) -> bool {
-        bit::is_set(self.mem().lcdc(), 0)
-    }
-
-    fn bg_palette(&mut self) -> Palette {
-        self.mem().bgp().into()
-    }
-
-    fn obj_palette_0(&mut self) -> Palette {
-        self.mem().obj_palette_0().into()
-    }
-
-    fn obj_palette_1(&mut self) -> Palette {
-        self.mem().obj_palette_1().into()
-    }
-
-    fn get_fb(&mut self) -> [u8; 160 * 144 * 3] {
-        let td = self.bg_tile_data();
-        let tmap = self.bg_tile_map();
-        let (b, r) = self.bg_viewport();
-
-        for ti in tmap {}
-
-        fb
     }
 }
 

@@ -4,22 +4,17 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{cpu::Interrupt, utils::bit};
+use crate::{
+    cpu::Interrupt,
+    ppu::{VRAM_END, VRAM_SIZE, VRAM_START},
+    utils::bit,
+};
 
 const ROM_BANK_0_START: usize = 0x0000;
 const ROM_BANK_0_END: usize = 0x03FFF;
 
 const ROM_BANK_1_START: usize = 0x4000;
 const ROM_BANK_1_END: usize = 0x7FFF;
-
-const VRAM_START: usize = 0x8000;
-pub const VRAM_BLOCK_0_START: usize = VRAM_START;
-pub const VRAM_BLOCK_0_END: usize = 0x87FF;
-pub const VRAM_BLOCK_1_START: usize = 0x8800;
-pub const VRAM_BLOCK_1_END: usize = 0x8FFF;
-pub const VRAM_BLOCK_2_START: usize = 0x9000;
-pub const VRAM_BLOCK_2_END: usize = 0x97FF;
-const VRAM_END: usize = 0x9FFF;
 
 const ERAM_START: usize = 0xA000;
 const ERAM_END: usize = 0xBFFF;
@@ -401,8 +396,8 @@ impl Memory {
         self.m[TIMER_MODULO]
     }
 
-    pub fn vram(&self) -> [u8; 4096] {
-        let mut r = [0u8; 4096];
+    pub fn vram(&self) -> [u8; VRAM_SIZE] {
+        let mut r = [0u8; VRAM_SIZE];
         for addr in VRAM_START..=VRAM_END {
             r[addr - VRAM_START] = self.m[addr];
         }
@@ -413,15 +408,15 @@ impl Memory {
         self.m[LCDC]
     }
 
-    pub fn bgp(&self) -> u8 {
+    pub fn bg_pal(&self) -> u8 {
         self.m[BGP]
     }
 
-    pub fn obj_palette_0(&self) -> u8 {
+    pub fn obj_pal_0(&self) -> u8 {
         self.m[OBP0]
     }
 
-    pub fn obj_palette_1(&self) -> u8 {
+    pub fn obj_pal_1(&self) -> u8 {
         self.m[OBP1]
     }
 }
