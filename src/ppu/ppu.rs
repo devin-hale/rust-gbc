@@ -31,6 +31,9 @@ pub const OBJ_TILE_DATA_LEN: usize = OBJ_TILE_DATA_END - OBJ_TILE_DATA_START;
 pub const SCY: usize = 0xFF42;
 pub const SCX: usize = 0xFF43;
 
+const GB_LCD_W: usize = 160;
+const GB_LCD_H: usize = 144;
+
 pub struct PPU {
     mem: Arc<Mutex<Memory>>,
 }
@@ -62,24 +65,16 @@ impl PPU {
     //    TileArea::Low
     //}
 
-    fn bg_tile_data(&mut self) -> Vec<Tile> {
+    fn bg_tile_data(&mut self) -> BGTileData {
         let bg_mode = bit::is_set(self.mem().lcdc(), 4);
         let mem = self.mem();
-        let td_raw;
+        let mut td_raw = [0u8; BG_TILE_DATA_SIZE];
         if bg_mode {
-            td_raw = &mem[BG_TILE_DATA_1_START..BG_TILE_DATA_1_END];
+            td_raw.copy_from_slice(&mem[BG_TILE_DATA_1_START..BG_TILE_DATA_1_END]);
         } else {
-            td_raw = &mem[BG_TILE_DATA_0_START..BG_TILE_DATA_0_END];
+            td_raw.copy_from_slice(&mem[BG_TILE_DATA_0_START..BG_TILE_DATA_0_END]);
         }
-        assert_eq!(td_raw.len(), BG_TILE_DATA_SIZE);
-        let mut td: Vec<Tile> = vec![];
-        for i in 0..(BG_TILE_DATA_SIZE / 16) {
-            let offset = i * 16;
-            let tile: Tile = (&td_raw[offset..(offset + 16)]).into();
-            td.push(tile);
-        }
-        assert_eq!(td.len(), BG_TILE_DATA_SIZE / 16);
-        td
+        BGTileData(td_raw)
     }
 
     fn bg_tile_map(&mut self) -> [u8; BG_TILE_MAP_SIZE] {
@@ -126,20 +121,32 @@ impl PPU {
         self.mem().obj_pal_1().into()
     }
 
-    fn get_fb(&mut self) {
-        let td = self.bg_tile_data();
-        let tmap = self.bg_tile_map();
-
-        let (b, r) = self.bg_viewport();
-
-        for t in tmap {
-            
+    fn bg_tiles(&mut self) -> [Tile; BG_TILE_MAP_SIZE] {
+        let mut tiles = [Tile::new(); BG_TILE_MAP_SIZE];
+        let tile_data = self.bg_tile_data();
+        let tile_map = self.bg_tile_map();
+        for ti in tile_map {
+            tiles[ti as usize] = tile_data.tile(ti);
         }
+        tiles
+    }
 
-        //fb
+    fn frame_buffer(&mut self) -> Vec<u8> {
+        let fb: Vec<u8> = Vec::with_capacity(GB_LCD_H * GB_LCD_W * 3);
+        let bg = self.bg_tiles();
+        //for y in 0..(GB_LCD_H as usize) {
+        //    for x in 0..(GB_LCD_W as usize) {
+        //        let offset = (y * pitch) + x * 3;
+        //        buf[offset] = x as u8;
+        //        buf[offset + 1] = x as u8;
+        //        buf[offset + 2] = x as u8;
+        //    }
+        //}
+        fb
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Color {
     White,
     LightGrey,
@@ -213,8 +220,16 @@ impl Tile {
         Tile([0u8; 16])
     }
 
-    pub fn line(&self, n: usize) -> &[u8] {
+    fn line(&self, n: usize) -> &[u8] {
         &self.0[(n * 2)..(n * 2 + 1)]
+    }
+
+    pub fn pixel(&self, x: usize, y: usize) -> Color {
+        let a = self.0[y * 2];
+        let b = self.0[y * 2 + 1];
+        let low = bit::get(b, x as u8);
+        let high = bit::get(a, x as u8);
+        ((high << 1) | low).into()
     }
 
     pub fn line_as_ci(&self, n: usize) -> Vec<Color> {
@@ -250,18 +265,44 @@ impl From<[u8; 16]> for Tile {
     }
 }
 
+struct BGTileData([u8; BG_TILE_DATA_SIZE]);
+
+impl BGTileData {
+    fn tile(&self, i: u8) -> Tile {
+        let offset = i * 16;
+        let tile_arr = &self.0[(offset as usize)..(offset as usize + 16)];
+        tile_arr.into()
+    }
+
+    fn tiles(&self) -> [Tile; 256] {
+        let mut tiles = [Tile::new(); 256];
+        for i in 0..=255 as u8 {
+            tiles[i as usize] = self.tile(i);
+        }
+        tiles
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
+    const TEST_TILE: [u8; 16] = [
+        0x3C, 0x7E, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x7E, 0x5E, 0x7E, 0x0A, 0x7C, 0x56, 0x38,
+        0x7C,
+    ];
+
     #[test]
     fn to_tile() {
-        let t_arr: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-        let t1: Tile = t_arr.clone().into();
-        let t2: Tile = (&t_arr[..]).into();
+        let t1: Tile = TEST_TILE.clone().into();
+        let t2: Tile = (&TEST_TILE[..]).into();
         assert_eq!(t1, t2);
+
         let l1 = t1.line(0);
         let l2 = t2.line(0);
         assert_eq!(l1, l2);
+
+        let pixel = t1.pixel(0, 0);
+        assert_eq!(pixel, Color::White);
     }
 }

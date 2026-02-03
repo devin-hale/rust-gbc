@@ -6,16 +6,18 @@ use sdl2::{
     pixels::{Color, PixelFormatEnum},
 };
 
+use crate::{cpu::CPU, memory::Memory};
+
 mod cpu;
 mod memory;
 mod ppu;
 mod utils;
 
 const WINDOW_W: u32 = 320;
-const WINDOW_H: u32 = 300;
+const WINDOW_H: u32 = 288;
 
 const GB_LCD_W: u32 = 160;
-const GB_LCD_H: u32 = 150;
+const GB_LCD_H: u32 = 144;
 
 const PIXEL_W: u32 = WINDOW_W / GB_LCD_W;
 const PIXEL_H: u32 = WINDOW_H / GB_LCD_H;
@@ -37,6 +39,10 @@ fn main() {
 
     let mut event_pump = ctx.event_pump().unwrap();
     let mut running = true;
+
+    let mem = Memory::arc();
+    let _cpu = CPU::new(&mem);
+    let _ppu = CPU::new(&mem);
 
     while running {
         for event in event_pump.poll_iter() {
