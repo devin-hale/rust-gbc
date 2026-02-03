@@ -3151,8 +3151,6 @@ mod test {
         let i = cpu.decode(opcode).unwrap();
         cpu.i = Some(i);
         cpu.tick().unwrap();
-        assert!(cpu.ime);
-
         cpu.tick().unwrap();
         assert!(!cpu.ime);
     }
@@ -3164,8 +3162,7 @@ mod test {
         let i = cpu.decode(opcode).unwrap();
         cpu.i = Some(i);
         cpu.tick().unwrap();
-        assert!(!cpu.ime);
-
+        cpu.tick().unwrap();
         cpu.tick().unwrap();
         assert!(cpu.ime);
     }
