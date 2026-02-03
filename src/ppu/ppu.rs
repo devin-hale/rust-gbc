@@ -80,13 +80,13 @@ impl PPU {
     fn bg_tile_map(&mut self) -> [u8; BG_TILE_MAP_SIZE] {
         let bg_mode = bit::is_set(self.mem().lcdc(), 3);
         let mem = self.mem();
-        let mut tm_raw = [0u8; BG_TILE_MAP_SIZE];
+        let mut tm = [0u8; BG_TILE_MAP_SIZE];
         if bg_mode {
-            tm_raw.copy_from_slice(&mem[BG_TILE_MAP_1_START..BG_TILE_MAP_1_END]);
+            tm.copy_from_slice(&mem[BG_TILE_MAP_1_START..BG_TILE_MAP_1_END]);
         } else {
-            tm_raw.copy_from_slice(&mem[BG_TILE_MAP_0_START..BG_TILE_MAP_0_END]);
+            tm.copy_from_slice(&mem[BG_TILE_MAP_0_START..BG_TILE_MAP_0_END]);
         }
-        tm_raw
+        tm
     }
 
     fn bg_viewport(&mut self) -> (u8, u8) {
@@ -129,20 +129,6 @@ impl PPU {
             tiles[ti as usize] = tile_data.tile(ti);
         }
         tiles
-    }
-
-    fn frame_buffer(&mut self) -> Vec<u8> {
-        let fb: Vec<u8> = Vec::with_capacity(GB_LCD_H * GB_LCD_W * 3);
-        let bg = self.bg_tiles();
-        //for y in 0..(GB_LCD_H as usize) {
-        //    for x in 0..(GB_LCD_W as usize) {
-        //        let offset = (y * pitch) + x * 3;
-        //        buf[offset] = x as u8;
-        //        buf[offset + 1] = x as u8;
-        //        buf[offset + 2] = x as u8;
-        //    }
-        //}
-        fb
     }
 }
 
@@ -213,28 +199,33 @@ impl From<u8> for Palette {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Tile([u8; 16]);
+pub struct Tile {
+    buf: [u8; 16],
+}
 
 impl Tile {
+    pub const LINE_SIZE_RGB24: usize = 24;
+    pub const TILE_SIZE_RGB24: usize = Self::LINE_SIZE_RGB24 * 8;
+
     pub fn new() -> Tile {
-        Tile([0u8; 16])
+        Tile { buf: [0u8; 16] }
     }
 
     fn line(&self, n: usize) -> &[u8] {
-        &self.0[(n * 2)..(n * 2 + 1)]
+        &self.buf[(n * 2)..(n * 2 + 1)]
     }
 
     pub fn pixel(&self, x: usize, y: usize) -> Color {
-        let a = self.0[y * 2];
-        let b = self.0[y * 2 + 1];
+        let a = self.buf[y * 2];
+        let b = self.buf[y * 2 + 1];
         let low = bit::get(b, x as u8);
         let high = bit::get(a, x as u8);
         ((high << 1) | low).into()
     }
 
     pub fn line_as_ci(&self, n: usize) -> Vec<Color> {
-        let a = self.0[n * 2];
-        let b = self.0[n * 2 + 1];
+        let a = self.buf[n * 2];
+        let b = self.buf[n * 2 + 1];
         let mut row: Vec<Color> = vec![];
         for i in 7u8..0 {
             let low = bit::get(b, i);
@@ -243,6 +234,27 @@ impl Tile {
         }
         row
     }
+
+    pub fn line_rgb24(&self, n: usize) -> [u8; Self::LINE_SIZE_RGB24] {
+        let a = self.buf[n * 2];
+        let b = self.buf[n * 2 + 1];
+        let mut colors: Vec<(u8, u8, u8)> = vec![];
+        let mut line = [0u8; Self::LINE_SIZE_RGB24];
+        for i in 7u8..0 {
+            let low = bit::get(b, i);
+            let high = bit::get(a, i);
+            let color: Color = ((high << 1) | low).into();
+            colors.push(color.to_rgb());
+        }
+        for i in 0..8u8 as usize {
+            let offset = 3 * i;
+            let c = colors[i];
+            line[offset] = c.0;
+            line[offset + 1] = c.1;
+            line[offset + 2] = c.2;
+        }
+        line
+    }
 }
 
 impl From<&[u8]> for Tile {
@@ -250,7 +262,7 @@ impl From<&[u8]> for Tile {
         assert_eq!(value.len(), 16);
         let mut t = Tile::new();
         for (i, b) in value.iter().enumerate() {
-            t.0[i] = *b
+            t.buf[i] = *b
         }
         t
     }
@@ -260,7 +272,7 @@ impl From<[u8; 16]> for Tile {
     fn from(value: [u8; 16]) -> Self {
         assert_eq!(value.len(), 16);
         let mut t = Tile::new();
-        t.0 = value.clone();
+        t.buf = value.clone();
         t
     }
 }
