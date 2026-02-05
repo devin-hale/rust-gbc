@@ -6,7 +6,7 @@ use sdl2::{
     pixels::{Color, PixelFormatEnum},
 };
 
-use crate::{cpu::CPU, memory::Memory};
+use crate::{cpu::CPU, memory::Memory, ppu::PPU};
 
 mod cpu;
 mod memory;
@@ -19,17 +19,18 @@ const WINDOW_H: u32 = 288;
 const GB_LCD_W: u32 = 160;
 const GB_LCD_H: u32 = 144;
 
+const BG_TILE_WIDTH: u32 = 32 * 8;
+const BG_TILE_HEIGHT: u32 = 32 * 8;
+
 const PIXEL_W: u32 = WINDOW_W / GB_LCD_W;
 const PIXEL_H: u32 = WINDOW_H / GB_LCD_H;
 
 fn main() {
     let ctx = sdl2::init().unwrap();
     let vs = ctx.video().unwrap();
-    dbg!(PIXEL_W);
-    dbg!(PIXEL_H);
 
     let window = vs
-        .window("rust-gbc", WINDOW_W, WINDOW_H)
+        .window("rust-gbc", BG_TILE_WIDTH, BG_TILE_HEIGHT)
         .position_centered()
         .resizable()
         .opengl()
@@ -42,7 +43,7 @@ fn main() {
 
     let mem = Memory::arc();
     let _cpu = CPU::new(&mem);
-    let _ppu = CPU::new(&mem);
+    let mut ppu = PPU::new(&mem);
 
     while running {
         for event in event_pump.poll_iter() {
@@ -69,17 +70,10 @@ fn main() {
 
         let tc = canvas.texture_creator();
         let mut t = tc
-            .create_texture_streaming(PixelFormatEnum::RGB24, GB_LCD_W, GB_LCD_H)
+            .create_texture_streaming(PixelFormatEnum::RGB24, BG_TILE_WIDTH, BG_TILE_HEIGHT)
             .unwrap();
         t.with_lock(None, |buf: &mut [u8], pitch: usize| {
-            for y in 0..(GB_LCD_H as usize) {
-                for x in 0..(GB_LCD_W as usize) {
-                    let offset = (y * pitch) + x * 3;
-                    buf[offset] = x as u8;
-                    buf[offset + 1] = x as u8;
-                    buf[offset + 2] = x as u8;
-                }
-            }
+            ppu.draw_bg_tiles(buf, pitch);
         })
         .unwrap();
         canvas.copy(&t, None, None).unwrap();

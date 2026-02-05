@@ -39,6 +39,11 @@ pub struct PPU {
 }
 
 impl PPU {
+    pub fn new(mem: &Arc<Mutex<Memory>>) -> PPU {
+        PPU {
+            mem: Arc::clone(mem),
+        }
+    }
     fn mem<'m>(&'m mut self) -> MutexGuard<'m, Memory> {
         self.mem.lock().expect("error acquiring Memory mutex lock")
     }
@@ -65,28 +70,25 @@ impl PPU {
     //    TileArea::Low
     //}
 
-    fn bg_tile_data(&mut self) -> BGTileData {
-        let bg_mode = bit::is_set(self.mem().lcdc(), 4);
+    fn background(&mut self) -> Background {
         let mem = self.mem();
-        let mut td_raw = [0u8; BG_TILE_DATA_SIZE];
-        if bg_mode {
-            td_raw.copy_from_slice(&mem[BG_TILE_DATA_1_START..BG_TILE_DATA_1_END]);
-        } else {
-            td_raw.copy_from_slice(&mem[BG_TILE_DATA_0_START..BG_TILE_DATA_0_END]);
-        }
-        BGTileData(td_raw)
-    }
 
-    fn bg_tile_map(&mut self) -> [u8; BG_TILE_MAP_SIZE] {
-        let bg_mode = bit::is_set(self.mem().lcdc(), 3);
-        let mem = self.mem();
-        let mut tm = [0u8; BG_TILE_MAP_SIZE];
-        if bg_mode {
-            tm.copy_from_slice(&mem[BG_TILE_MAP_1_START..BG_TILE_MAP_1_END]);
+        let bg_data_mode = bit::is_set(mem.lcdc(), 4);
+        let mut td = [0u8; BG_TILE_DATA_SIZE];
+        if bg_data_mode {
+            td.copy_from_slice(&mem[BG_TILE_DATA_1_START..=BG_TILE_DATA_1_END]);
         } else {
-            tm.copy_from_slice(&mem[BG_TILE_MAP_0_START..BG_TILE_MAP_0_END]);
+            td.copy_from_slice(&mem[BG_TILE_DATA_0_START..=BG_TILE_DATA_0_END]);
         }
-        tm
+
+        let bg_tile_mode = bit::is_set(mem.lcdc(), 3);
+        let mut tm = [0u8; BG_TILE_MAP_SIZE];
+        if bg_tile_mode {
+            tm.copy_from_slice(&mem[BG_TILE_MAP_1_START..=BG_TILE_MAP_1_END]);
+        } else {
+            tm.copy_from_slice(&mem[BG_TILE_MAP_0_START..=BG_TILE_MAP_0_END]);
+        }
+        Background { map: tm, data: td }
     }
 
     fn bg_viewport(&mut self) -> (u8, u8) {
@@ -121,14 +123,9 @@ impl PPU {
         self.mem().obj_pal_1().into()
     }
 
-    fn bg_tiles(&mut self) -> [Tile; BG_TILE_MAP_SIZE] {
-        let mut tiles = [Tile::new(); BG_TILE_MAP_SIZE];
-        let tile_data = self.bg_tile_data();
-        let tile_map = self.bg_tile_map();
-        for ti in tile_map {
-            tiles[ti as usize] = tile_data.tile(ti);
-        }
-        tiles
+    pub fn draw_bg_tiles(&mut self, buf: &mut [u8], pitch: usize) {
+        let bg = self.background();
+        bg.draw(buf, pitch);
     }
 }
 
@@ -277,21 +274,38 @@ impl From<[u8; 16]> for Tile {
     }
 }
 
-struct BGTileData([u8; BG_TILE_DATA_SIZE]);
+struct Background {
+    map: [u8; BG_TILE_MAP_SIZE],
+    data: [u8; BG_TILE_DATA_SIZE],
+}
 
-impl BGTileData {
-    fn tile(&self, i: u8) -> Tile {
-        let offset = i * 16;
-        let tile_arr = &self.0[(offset as usize)..(offset as usize + 16)];
-        tile_arr.into()
+impl Background {
+    fn draw(&self, buf: &mut [u8], pitch: usize) {
+        for (i, ti) in self.map.iter().enumerate() {
+            let tile = self.tile_from_index(*ti);
+            let pixel_row = (i / 32) * 8;
+            let pixel_col = (i % 32) * 8;
+
+            for y in 0..8 as usize {
+                let offset_y = pixel_row + y;
+                for x in 0..8 as usize {
+                    let color = tile.pixel(x, y);
+                    let rgb = color.to_rgb();
+                    let offset_x = pixel_col + x;
+                    let offset = (offset_y * pitch) + offset_x * 3;
+
+                    buf[offset] = rgb.0;
+                    buf[offset + 1] = rgb.1;
+                    buf[offset + 2] = rgb.2;
+                }
+            }
+        }
     }
 
-    fn tiles(&self) -> [Tile; 256] {
-        let mut tiles = [Tile::new(); 256];
-        for i in 0..=255 as u8 {
-            tiles[i as usize] = self.tile(i);
-        }
-        tiles
+    fn tile_from_index(&self, i: u8) -> Tile {
+        let offset = i * 16;
+        let tile_arr = &self.data[(offset as usize)..(offset as usize + 16)];
+        tile_arr.into()
     }
 }
 
