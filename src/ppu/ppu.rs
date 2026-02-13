@@ -71,6 +71,7 @@ impl PPU {
     //}
 
     fn background(&mut self) -> Background {
+        let vp = self.bg_viewport();
         let mem = self.mem();
 
         let bg_data_mode = bit::is_set(mem.lcdc(), 4);
@@ -88,7 +89,12 @@ impl PPU {
         } else {
             tm.copy_from_slice(&mem[BG_TILE_MAP_0_START..=BG_TILE_MAP_0_END]);
         }
-        Background { map: tm, data: td }
+        Background {
+            map: tm,
+            data: td,
+            vp,
+            show_viewport: true,
+        }
     }
 
     fn bg_viewport(&mut self) -> (u8, u8) {
@@ -130,7 +136,7 @@ impl PPU {
 
     pub fn draw_screen(&mut self, buf: &mut [u8], pitch: usize) {
         let bg = self.background();
-        bg.draw_viewport(buf, pitch, self.bg_viewport());
+        bg.draw_viewport(buf, pitch);
     }
 }
 
@@ -282,6 +288,8 @@ impl From<[u8; 16]> for Tile {
 struct Background {
     map: [u8; BG_TILE_MAP_SIZE],
     data: [u8; BG_TILE_DATA_SIZE],
+    vp: (u8, u8),
+    show_viewport: bool,
 }
 
 impl Background {
@@ -299,25 +307,42 @@ impl Background {
                     let offset_x = pixel_col + x;
                     let offset = (offset_y * pitch) + offset_x * 3;
 
-                    buf[offset] = rgb.0;
-                    buf[offset + 1] = rgb.1;
-                    buf[offset + 2] = rgb.2;
+                    if self.show_viewport && self.within_viewport_border(offset_x, offset_y) {
+                        buf[offset] = 255;
+                        buf[offset + 1] = 0;
+                        buf[offset + 2] = 0;
+                    } else {
+                        buf[offset] = rgb.0;
+                        buf[offset + 1] = rgb.1;
+                        buf[offset + 2] = rgb.2;
+                    }
                 }
             }
         }
     }
 
-    fn draw_viewport(&self, buf: &mut [u8], pitch: usize, vp: (u8, u8)) {
+    fn within_viewport_border(&self, x: usize, y: usize) -> bool {
+        let x_end = self.vp.0 as usize;
+        let x_start = self.vp.0.wrapping_sub(GB_LCD_W as u8) as usize;
+        let y_end = self.vp.1 as usize;
+        let y_start = self.vp.1.wrapping_sub(GB_LCD_H as u8) as usize;
+
+        let l = x == x_start && y > y_start && y < y_end;
+        let r = x == x_end && y > y_start && y < y_end;
+        let t = y == y_start && (x > x_start || x < x_end);
+        let b = y == y_end && (x > x_start || x < x_end);
+        l || r || t || b
+    }
+
+    fn draw_viewport(&self, buf: &mut [u8], pitch: usize) {
         const TILE_W: usize = 8;
         const TILE_H: usize = 8;
         const VALUES_PER_PIXEL: usize = 3;
         let mut raw_bg = [0u8; BG_TILE_MAP_SIZE * TILE_W * TILE_H * VALUES_PER_PIXEL];
         self.draw(&mut raw_bg, pitch);
 
-        dbg!(vp);
-        dbg!(pitch);
-        let x_start = vp.1.wrapping_sub(GB_LCD_W as u8) as usize * 3;
-        let y_start = vp.1.wrapping_sub(GB_LCD_H as u8) as usize * pitch;
+        let x_start = self.vp.0.wrapping_sub(GB_LCD_W as u8) as usize * 3;
+        let y_start = self.vp.1.wrapping_sub(GB_LCD_H as u8) as usize * pitch;
 
         for y in 0..GB_LCD_H {
             let y_offset = y * pitch;
