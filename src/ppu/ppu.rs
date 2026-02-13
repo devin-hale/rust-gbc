@@ -127,6 +127,11 @@ impl PPU {
         let bg = self.background();
         bg.draw(buf, pitch);
     }
+
+    pub fn draw_screen(&mut self, buf: &mut [u8], pitch: usize) {
+        let bg = self.background();
+        bg.draw_viewport(buf, pitch, self.bg_viewport());
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -298,6 +303,36 @@ impl Background {
                     buf[offset + 1] = rgb.1;
                     buf[offset + 2] = rgb.2;
                 }
+            }
+        }
+    }
+
+    fn draw_viewport(&self, buf: &mut [u8], pitch: usize, vp: (u8, u8)) {
+        const TILE_W: usize = 8;
+        const TILE_H: usize = 8;
+        const VALUES_PER_PIXEL: usize = 3;
+        let mut raw_bg = [0u8; BG_TILE_MAP_SIZE * TILE_W * TILE_H * VALUES_PER_PIXEL];
+        self.draw(&mut raw_bg, pitch);
+
+        dbg!(vp);
+        dbg!(pitch);
+        let x_start = vp.1.wrapping_sub(GB_LCD_W as u8) as usize * 3;
+        let y_start = vp.1.wrapping_sub(GB_LCD_H as u8) as usize * pitch;
+
+        for y in 0..GB_LCD_H {
+            let y_offset = y * pitch;
+            let raw_y_offset = y_start + y_offset;
+
+            for x in 0..GB_LCD_W {
+                let x_offset = x * 3;
+                let raw_x_offset = x_start + x_offset;
+
+                let raw_offset = raw_y_offset + raw_x_offset;
+                let offset = y_offset + x_offset;
+
+                buf[offset] = raw_bg[raw_offset + 1];
+                buf[offset + 1] = raw_bg[raw_offset + 1];
+                buf[offset + 2] = raw_bg[raw_offset + 1];
             }
         }
     }

@@ -58,6 +58,7 @@ struct Window {
     canvas: Canvas<sdl2::video::Window>,
     active: bool,
     w_type: WindowType,
+    base_dimensions: (u32, u32),
 }
 
 impl Window {
@@ -71,7 +72,11 @@ impl Window {
 
         let tc = self.canvas.texture_creator();
         let mut t = tc
-            .create_texture_streaming(PixelFormatEnum::RGB24, BG_TILE_WIDTH, BG_TILE_HEIGHT)
+            .create_texture_streaming(
+                PixelFormatEnum::RGB24,
+                self.base_dimensions.0,
+                self.base_dimensions.1,
+            )
             .unwrap();
         t.with_lock(None, |buf: &mut [u8], pitch: usize| {
             self.draw_by_type(buf, pitch);
@@ -85,7 +90,7 @@ impl Window {
         let mut ppu = self.ppu.lock().unwrap();
         match self.w_type {
             WindowType::BackgroundTiles => ppu.draw_bg_tiles(buf, pitch),
-            WindowType::Screen => {}
+            WindowType::Screen => ppu.draw_screen(buf, pitch),
         }
     }
 
@@ -127,6 +132,7 @@ impl<'w> WindowManager<'w> {
             canvas,
             active: true,
             w_type: opts.w_type,
+            base_dimensions: (opts.width, opts.height),
         };
         let id = w.id();
         let w = Arc::new(Mutex::new(w));
