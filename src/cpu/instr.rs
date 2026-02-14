@@ -877,7 +877,7 @@ const INVALID_OPCODES: [u8; 11] = [
 
 fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
     if INVALID_OPCODES.contains(&opcode) {
-        return Err(Error::Unknown);
+        return Err(Error::InvalidOpCode(opcode));
     }
 
     let mut i = Instruction::new();

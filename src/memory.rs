@@ -12,6 +12,7 @@ use crate::{
 
 const ROM_BANK_0_START: usize = 0x0000;
 const ROM_BANK_0_END: usize = 0x03FFF;
+const ROM_BANK_0_LEN: usize = ROM_BANK_0_END + 1;
 
 const ROM_BANK_1_START: usize = 0x4000;
 const ROM_BANK_1_END: usize = 0x7FFF;
@@ -389,6 +390,12 @@ impl Memory {
                 self.m[TIMER_COUNTER] = self.tma();
                 self.interrupt_flags().timer_set();
             }
+        }
+    }
+
+    pub fn load_rom(&mut self, rom: &[u8]) {
+        for i in 0..ROM_BANK_0_LEN {
+            self.m[i] = rom[i]
         }
     }
 

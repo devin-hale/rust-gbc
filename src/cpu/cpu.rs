@@ -352,6 +352,7 @@ impl CPU {
 
     fn execute(&mut self, i: Instruction) -> u8 {
         let mut i = i;
+        let mut use_branch_cycles = false;
         match i.op() {
             Operation::NOP => {}
             Operation::DI => self.di(),
@@ -387,17 +388,11 @@ impl CPU {
             Operation::CCF => self.ccf(),
             Operation::JP(r) => self.jp(r),
             Operation::JPC(c, r) => {
-                let branched = self.jp_cond(c, r);
-                if branched {
-                    return i.branch_cycles();
-                }
+                use_branch_cycles = self.jp_cond(c, r);
             }
             Operation::CALL => self.call(),
             Operation::CALLC(c) => {
-                let branched = self.call_cond(c);
-                if branched {
-                    return i.branch_cycles();
-                }
+                use_branch_cycles = self.call_cond(c);
             }
             Operation::RST(t) => self.rst(t),
             Operation::POP(r) => self.pop(r),
@@ -413,10 +408,7 @@ impl CPU {
                 let v = self.imm();
                 match jr {
                     JR::Cond(c) => {
-                        let jumped = self.jr_cond(c, v);
-                        if jumped {
-                            return i.branch_cycles();
-                        }
+                        use_branch_cycles = self.jr_cond(c, v);
                     }
                     JR::N8 => self.jr(v),
                 }
@@ -424,10 +416,7 @@ impl CPU {
             Operation::RET => self.ret(),
             Operation::RETI => self.reti(),
             Operation::RETC(c) => {
-                let branched = self.ret_cond(c);
-                if branched {
-                    return i.branch_cycles();
-                }
+                use_branch_cycles = self.ret_cond(c);
             }
             Operation::SUB(r) => self.sub(r),
             Operation::SBC(r) => self.sbc(r),
@@ -447,7 +436,12 @@ impl CPU {
         if self.i.is_some() {
             self.i = None;
         }
-        i.cycles()
+        println!("{}", i);
+        if use_branch_cycles {
+            i.branch_cycles()
+        } else {
+            i.cycles()
+        }
     }
 
     pub fn handle_div(&mut self, cycles: u8) {

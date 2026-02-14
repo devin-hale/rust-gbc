@@ -363,7 +363,7 @@ impl Background {
     }
 
     fn tile_from_index(&self, i: u8) -> Tile {
-        let offset = i * 16;
+        let offset = i.wrapping_mul(16);
         let tile_arr = &self.data[(offset as usize)..(offset as usize + 16)];
         tile_arr.into()
     }

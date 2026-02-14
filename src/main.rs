@@ -2,7 +2,9 @@
 
 use std::{
     collections::HashMap,
+    fs,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 use sdl2::{
@@ -13,7 +15,11 @@ use sdl2::{
     render::Canvas,
 };
 
-use crate::{cpu::CPU, memory::Memory, ppu::PPU};
+use crate::{
+    cpu::{CPU, T_CYCLE_PRD_NS},
+    memory::Memory,
+    ppu::PPU,
+};
 
 mod cpu;
 mod memory;
@@ -173,11 +179,15 @@ impl<'w> WindowManager<'w> {
 }
 
 fn main() {
+    let rom = fs::read("pkm_red.gb").unwrap();
+
     let ctx = sdl2::init().unwrap();
     let vs = ctx.video().unwrap();
 
     let mem = Memory::arc();
-    let _cpu = CPU::new(&mem);
+    mem.lock().unwrap().init();
+    mem.lock().unwrap().load_rom(&rom);
+    let mut cpu = CPU::new(&mem);
     let ppu = Arc::new(Mutex::new(PPU::new(&mem)));
 
     let mut wm = WindowManager::new(&vs, &ppu);
@@ -189,6 +199,7 @@ fn main() {
 
     let mut running = true;
     while running {
+        let now = Instant::now();
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
@@ -221,5 +232,10 @@ fn main() {
         }
         bg_tile_viewer.lock().unwrap().draw();
         screen.lock().unwrap().draw();
+        let cycles_to_adv = now.elapsed().as_nanos() / T_CYCLE_PRD_NS as u128;
+        let mut cycles = 0;
+        while cycles < cycles_to_adv {
+            cycles += cpu.tick().unwrap() as u128;
+        }
     }
 }
