@@ -10,6 +10,11 @@ pub const DIV_CLOCK_PRD_NS: u64 = (1 * 1000 * 1000 * 1000) / DIV_CLOCK_FREQ; // 
 const CYCLES_PER_DIV_TICK: u64 = DIV_CLOCK_PRD_NS / T_CYCLE_PRD_NS;
 pub const SYSTEM_CLOCK: u64 = MASTER_CLOCK_FREQ / 4;
 
+use serde::{
+    Deserialize, Deserializer,
+    de::{self, Visitor},
+};
+use serde_json::Value;
 use thiserror::Error;
 
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3};
@@ -65,8 +70,10 @@ pub struct CPU {
     timer_cycles: u64,
 }
 
-#[derive(PartialEq, Eq)]
-pub struct State {
+#[derive(PartialEq, Eq, Deserialize)]
+struct State {
+    pc: u16,
+    sp: u16,
     a: u8,
     f: u8,
     b: u8,
@@ -75,15 +82,135 @@ pub struct State {
     e: u8,
     h: u8,
     l: u8,
-    sp: u16,
-    pc: u16,
-
-    mem: Vec<memory::State>,
-
-    stop: bool,
-    halt: bool,
     ie: bool,
     ime: bool,
+    ram: Vec<[u16; 2]>,
+}
+
+struct CycleState {
+    addr: Option<u16>,
+    data: Option<u8>,
+    r: bool,
+    w: bool,
+    m: bool,
+}
+
+impl<'de> de::Deserialize<'de> for CycleState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct CycleStateVisitor;
+
+        impl<'de> Visitor<'de> for CycleStateVisitor {
+            type Value = CycleState;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("CycleState")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                let mut cs: CycleState = CycleState {
+                    addr: None,
+                    data: None,
+                    r: false,
+                    w: false,
+                    m: false,
+                };
+                let mut index = 0;
+                while let Some(el) = seq.next_element()? {
+                    match index {
+                        0 => {
+                            if let Value::Number(n) = el {
+                                match n.as_u64() {
+                                    Some(addr) => {
+                                        cs.addr = Some(addr as u16);
+                                    }
+                                    None => {
+                                        return Err(de::Error::custom(format!(
+                                            "invalid value for CycleState address: {:?}",
+                                            n
+                                        )));
+                                    }
+                                }
+                            } else if let Value::Null = el {
+                                cs.addr = None;
+                            } else {
+                                return Err(de::Error::custom(
+                                    "invalid value for CycleState address",
+                                ));
+                            };
+                        }
+                        1 => {
+                            if let Value::Number(n) = el {
+                                match n.as_u64() {
+                                    Some(data) => {
+                                        cs.data = Some(data as u8);
+                                    }
+                                    None => {
+                                        return Err(de::Error::custom(format!(
+                                            "invalid value for CycleState data: {:?}",
+                                            n
+                                        )));
+                                    }
+                                }
+                            } else if let Value::Null = el {
+                                cs.data = None;
+                            } else {
+                                return Err(de::Error::custom("invalid value for CycleState data"));
+                            };
+                        }
+                        2 => {
+                            let Value::String(s) = el else {
+                                return Err(de::Error::custom(
+                                    "invalid value for CycleState rwm pins",
+                                ));
+                            };
+                            if s.len() != 3 {
+                                return Err(de::Error::custom(format!(
+                                    "Invalid value for CycleState rwm: {}",
+                                    s
+                                )));
+                            }
+                            match s.chars().nth(0) {
+                                Some(v) => {
+                                    cs.r = v == 'r';
+                                }
+                                None => {
+                                    return Err(de::Error::custom("no flag for 'r'"));
+                                }
+                            };
+                            match s.chars().nth(1) {
+                                Some(v) => {
+                                    cs.w = v == 'w';
+                                }
+                                None => {
+                                    return Err(de::Error::custom("no flag for 'w'"));
+                                }
+                            };
+                            match s.chars().nth(2) {
+                                Some(v) => {
+                                    cs.m = v == 'm';
+                                }
+                                None => {
+                                    return Err(de::Error::custom("no flag for 'm'"));
+                                }
+                            };
+                        }
+                        _ => return Err(de::Error::custom("invalid value for CycleState")),
+                    }
+                    index += 1;
+                }
+                Ok(cs)
+            }
+        }
+
+        let visitor = CycleStateVisitor;
+        deserializer.deserialize_seq(visitor)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1452,1786 +1579,45 @@ mod test {
         assert_eq!(h.0, high_val);
     }
 
-    fn setup() -> (CPU, Arc<Mutex<Memory>>) {
-        let mem = Memory::arc();
-        let cpu = CPU::new(&mem);
-        (cpu, mem)
-    }
-
-    // LOAD INSTRUCTIONS
     #[test]
-    fn ld_r_s() {
-        for r in 0b000..=0b111 {
-            for s in 0b000..=0b111 {
-                let opcode = 0b0100_0000 | (r << 3) | s;
-                let (mut cpu, _) = setup();
-                let i = cpu.decode(opcode).unwrap();
-                let a: R8 = r.try_into().unwrap();
-                let b: R8 = s.try_into().unwrap();
+    fn deserialize_cycle_state() {
+        // valid
+        let cs_str = r#"[24525,174,"r-m"]"#;
+        let cs: CycleState = serde_json::from_str(cs_str).unwrap();
+        assert_eq!(Some(24525), cs.addr);
+        assert_eq!(Some(174), cs.data);
+        assert!(cs.r);
+        assert!(!cs.w);
+        assert!(cs.m);
 
-                if a == R8::HL && b == R8::HL {
-                    assert_eq!(i.op(), Operation::HALT);
-                    continue;
-                } else if a == R8::HL {
-                    assert_eq!(i.op(), Operation::LD(LD::MemR8(Mem::HL, b)));
-                } else if b == R8::HL {
-                    assert_eq!(i.op(), Operation::LD(LD::R8Mem(a, Mem::HL)));
-                } else {
-                    assert_eq!(i.op(), Operation::LD(LD::R8(a, b)));
-                }
+        // valid, includes nulls
+        let cs_str = r#"[null,null,"-w-"]"#;
+        let cs: CycleState = serde_json::from_str(cs_str).unwrap();
+        assert_eq!(None, cs.addr);
+        assert_eq!(None, cs.data);
+        assert!(!cs.r);
+        assert!(cs.w);
+        assert!(!cs.m);
 
-                let val = 0xfe;
-                cpu.ld_r8(b, val);
-                cpu.execute(i);
-                assert_eq!(cpu.src_r8(a), val);
-            }
+        // invalid 0
+        let cs_str = r#"[null,null,"-w-foo"]"#;
+        let should_fail: Result<CycleState, serde_json::Error> = serde_json::from_str(cs_str);
+        if let Ok(_) = should_fail {
+            panic!("expected string to fail deserialization");
         }
-        setup();
-    }
 
-    #[test]
-    fn push() {
-        for qq in 0..=3u8 {
-            // 11qq0101
-            let (mut cpu, mem) = setup();
-            let opcode = 0b1100_0101 | (qq << 4);
-
-            mem.lock().unwrap().write(cpu.pc, opcode);
-            let fetched = cpu.fetch();
-            assert_eq!(fetched, opcode);
-
-            let r = R16::r16stk(qq).unwrap();
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::PUSH(r));
-
-            let val = 0xfe;
-            cpu.ld_r16(r, val);
-            assert_eq!(cpu.src_r16(r), val);
-
-            let sp = cpu.sp;
-            cpu.execute(i);
-            assert_eq!(mem.lock().unwrap().read_word(cpu.sp), val);
-            assert_eq!(cpu.sp, sp - 2);
+        // invalid 1
+        let cs_str = r#"[null,null,"-w-o"#;
+        let should_fail: Result<CycleState, serde_json::Error> = serde_json::from_str(cs_str);
+        if let Ok(_) = should_fail {
+            panic!("expected string to fail deserialization");
         }
-    }
 
-    #[test]
-    fn pop() {
-        for qq in 0..=3u8 {
-            // 11qq0001
-            let (mut cpu, mem) = setup();
-            let opcode = 0b1100_0001 | (qq << 4);
-
-            mem.lock().unwrap().write(cpu.pc, opcode);
-            let fetched = cpu.fetch();
-            assert_eq!(fetched, opcode);
-
-            let r = R16::r16stk(qq).unwrap();
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::POP(r));
-
-            let val = 0xDEAD;
-            cpu.push(val);
-
-            let sp = cpu.sp;
-            cpu.execute(i);
-            let r16 = cpu.src_r16(r);
-            if r == R16::AF {
-                assert_eq!(r16, val & 0xFFF0);
-            } else {
-                assert_eq!(r16, val);
-            }
-            assert_eq!(cpu.sp, sp + 2);
+        // invalid 2
+        let cs_str = r#"[null,"string","rwm"]"#;
+        let should_fail: Result<CycleState, serde_json::Error> = serde_json::from_str(cs_str);
+        if let Ok(_) = should_fail {
+            panic!("expected string to fail deserialization");
         }
-    }
-
-    #[test]
-    fn ld_mem16() {
-        for x in 0..=1 {
-            for rr in 0..=3u8 {
-                let (mut cpu, mem) = setup();
-                // 0b00rr_x010
-                let opcode = 0b0000_0010 | (rr << 4) | (x << 3);
-                let r = Mem::r16mem(rr).unwrap();
-                let i = cpu.decode(opcode).unwrap();
-                if x == 1 {
-                    assert_eq!(i.op(), Operation::LD(LD::R8Mem(R8::A, r)));
-
-                    let val = 0xFE;
-                    let addr;
-                    if r == Mem::HLI || r == Mem::HLD {
-                        addr = cpu.hl().val();
-                    } else {
-                        addr = cpu.mem_addr(r);
-                    }
-                    mem.lock().unwrap().write(addr, val);
-                    assert_eq!(val, mem.lock().unwrap().read(addr));
-
-                    cpu.execute(i);
-                    assert_eq!(cpu.a.val(), val);
-                } else {
-                    assert_eq!(i.op(), Operation::LD(LD::MemR8(r, R8::A)));
-
-                    let val = 0xFE;
-                    cpu.a.write(val);
-                    let addr;
-                    if r == Mem::HLI || r == Mem::HLD {
-                        addr = cpu.hl().val();
-                    } else {
-                        addr = cpu.mem_addr(r);
-                    }
-                    cpu.execute(i);
-                    assert_eq!(mem.lock().unwrap().read(addr), val);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn ld_mem_n16_a() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11101010;
-
-        let addr = 0xDEAD;
-        let val = 0xFE;
-        mem.lock().unwrap().write_word(cpu.pc, addr);
-        cpu.a.write(val);
-
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::LD(LD::MemR8(Mem::N16, R8::A)));
-
-        cpu.execute(i);
-        assert_eq!(mem.lock().unwrap().read(addr), val);
-    }
-
-    #[test]
-    fn ld_a_mem_n16() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11111010;
-
-        let addr = 0xDEAD;
-        let val = 0xFE;
-        mem.lock().unwrap().write_word(cpu.pc, addr);
-        mem.lock().unwrap().write(addr, val);
-
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::LD(LD::R8Mem(R8::A, Mem::N16)));
-
-        cpu.execute(i);
-        assert_eq!(cpu.a.val(), val);
-    }
-
-    #[test]
-    fn ldh_n8_a() {
-        for n in 0..u8::MAX {
-            let (mut cpu, mem) = setup();
-            let opcode = 0b11100000;
-
-            let addr = n;
-            let val = 0xFE;
-            mem.lock().unwrap().write(cpu.pc, addr);
-            cpu.a.write(val);
-
-            let i = cpu.decode(opcode).unwrap();
-
-            assert_eq!(i.op(), Operation::LDH(LDH::Mem(Mem::N8)));
-
-            cpu.execute(i);
-            if (addr as u16) | 0xFF00 == (DIV as u16) {
-                assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), 0);
-            } else {
-                assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), val);
-            }
-        }
-    }
-
-    #[test]
-    fn ldh_a_n8() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11110000;
-
-        let addr = 0xDE;
-        let val = 0xFE;
-        mem.lock().unwrap().write(cpu.pc, addr);
-        mem.lock().unwrap().write((addr as u16) | 0xFF00, val);
-
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::LDH(LDH::A(Mem::N8)));
-
-        cpu.execute(i);
-        assert_eq!(cpu.a.val(), val);
-    }
-
-    #[test]
-    fn ldh_memc_a() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11100010;
-
-        let addr = 0xDE;
-        let val = 0xFE;
-        cpu.c.write(addr);
-        cpu.a.write(val);
-
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::LDH(LDH::Mem(Mem::C)));
-
-        cpu.execute(i);
-        assert_eq!(mem.lock().unwrap().read((addr as u16) | 0xFF00), val);
-    }
-
-    #[test]
-    fn ldh_a_memc() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11110010;
-
-        let addr = 0xDE;
-        let val = 0xFE;
-        cpu.c.write(addr);
-        mem.lock().unwrap().write((addr as u16) | 0xFF00, val);
-
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::LDH(LDH::A(Mem::C)));
-
-        cpu.execute(i);
-        assert_eq!(cpu.a.val(), val);
-    }
-
-    #[test]
-    fn ld_pp_nn() {
-        for pp in 0..=3u8 {
-            let (mut cpu, mem) = setup();
-            let val = 0xDEAD;
-            mem.lock().unwrap().write_word(cpu.pc, val);
-
-            let r: R16 = pp.try_into().unwrap();
-            let opcode = 0b0000_0001 | (pp << 4);
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::LD(LD::R16(r, R16::N16)));
-
-            cpu.execute(i);
-            assert_eq!(cpu.src_r16(r), val);
-        }
-    }
-
-    #[test]
-    fn ld_mem_n16_sp() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b00001000;
-        let word = 0xDEAD;
-        mem.lock().unwrap().write_word(cpu.pc, word);
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::LD(LD::MemR16(Mem::N16, R16::SP)));
-        let sp = cpu.sp;
-        cpu.execute(i);
-        assert_eq!(sp, mem.lock().unwrap().read_word(word));
-    }
-
-    #[test]
-    fn ld_sp_hl() {
-        let (mut cpu, _) = setup();
-        let opcode = 0b11111001;
-
-        let word = 0xDEAD;
-        cpu.hl().write(word);
-
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::LD(LD::R16(R16::SP, R16::HL)));
-        cpu.execute(i);
-
-        assert_eq!(cpu.sp, word);
-    }
-
-    // 16 BIT ARITHMETIC INSTRUCTIONS
-
-    #[test]
-    fn inc_r16() {
-        for pp in 0..=3u8 {
-            let (mut cpu, _) = setup();
-            let opcode = 0b0000_0011 | (pp << 4);
-            let r: R16 = pp.try_into().unwrap();
-
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::INC(INC::R16(r)));
-            let current = cpu.src_r16(r);
-            cpu.execute(i);
-            assert_eq!(cpu.src_r16(r), current + 1);
-        }
-    }
-
-    #[test]
-    fn dec_r16() {
-        for pp in 0..=3u8 {
-            let (mut cpu, _) = setup();
-            let opcode = 0b0000_1011 | (pp << 4);
-            let r: R16 = pp.try_into().unwrap();
-            let val = 0xffee;
-            cpu.ld_r16(r, val);
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::DEC(DEC::R16(r)));
-            cpu.execute(i);
-            assert_eq!(cpu.src_r16(r), val - 1);
-        }
-    }
-
-    #[test]
-    fn add_hl_r16() {
-        for pp in 0..=3u8 {
-            let (mut cpu, _) = setup();
-            let opcode = 0b0000_1001 | (pp << 4);
-            let r: R16 = pp.try_into().unwrap();
-            let val = 0x0fee;
-            cpu.ld_r16(r, val);
-            let hl = cpu.hl().val();
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::ADD(ADD::HL(r)));
-            cpu.execute(i);
-            assert_eq!(cpu.hl().val(), hl + val);
-
-            assert!(!cpu.flag(Flag::N));
-            assert_eq!(cpu.flag(Flag::H), bit::check_overflow_word(hl, val, 11));
-            assert_eq!(cpu.flag(Flag::C), bit::check_overflow_word(hl, val, 15));
-        }
-    }
-
-    #[test]
-    fn add_sp_e() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11101000;
-        let val = 0x11;
-        cpu.sp = 0x00ff;
-        mem.lock().unwrap().write(cpu.pc, val);
-        let sp = cpu.sp;
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::ADD(ADD::SP));
-        cpu.execute(i);
-        assert_eq!(cpu.sp, sp + (val as u16));
-
-        assert!(!cpu.flag(Flag::Z));
-        assert!(!cpu.flag(Flag::N));
-        assert_eq!(
-            cpu.flag(Flag::H),
-            bit::check_overflow_word(sp, val as u16, 11)
-        );
-        assert_eq!(
-            cpu.flag(Flag::C),
-            bit::check_overflow_word(sp, val as u16, 15)
-        );
-    }
-
-    #[test]
-    fn ld_hl_spe() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11111000;
-        let val = 0x11;
-        cpu.sp = 0x00ff;
-        mem.lock().unwrap().write(cpu.pc, val);
-        let sp = cpu.sp;
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::LD(LD::HLSPN));
-        cpu.execute(i);
-        assert_eq!(cpu.hl().val(), sp + (val as u16));
-
-        assert!(!cpu.flag(Flag::Z));
-        assert!(!cpu.flag(Flag::N));
-        assert_eq!(
-            cpu.flag(Flag::H),
-            bit::check_overflow_word(sp, val as u16, 11)
-        );
-        assert_eq!(
-            cpu.flag(Flag::C),
-            bit::check_overflow_word(sp, val as u16, 15)
-        );
-    }
-
-    // 8 BIT ALU INSTRUCTIONS
-    #[test]
-    fn inc_r8() {
-        for rrr in 0..=7u8 {
-            let (mut cpu, _) = setup();
-            let opcode = 0b00000100 | (rrr << 3);
-            let r: R8 = rrr.try_into().unwrap();
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::INC(INC::R8(r)));
-            let current = cpu.src_r8(r);
-            cpu.execute(i);
-            assert_eq!(cpu.src_r8(r), current + 1);
-
-            if current + 1 == 0 {
-                assert!(cpu.flag(Flag::Z));
-            }
-            assert!(!cpu.flag(Flag::N));
-            if bit::check_overflow(current, 1, 3) {
-                assert!(cpu.flag(Flag::Z));
-            }
-        }
-    }
-
-    #[test]
-    fn dec_r8() {
-        for rrr in 0..=7u8 {
-            let (mut cpu, _) = setup();
-            let opcode = 0b00000101 | (rrr << 3);
-            let r: R8 = rrr.try_into().unwrap();
-            let val = 0xde;
-            cpu.ld_r8(r, val);
-
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::DEC(DEC::R8(r)));
-            let current = cpu.src_r8(r);
-            cpu.execute(i);
-            assert_eq!(cpu.src_r8(r), current - 1);
-
-            if current + 1 == 0 {
-                assert!(cpu.flag(Flag::Z));
-            }
-            assert!(cpu.flag(Flag::N));
-            if bit::check_borrow(current, 1, 4) {
-                assert!(cpu.flag(Flag::H));
-            }
-        }
-    }
-
-    #[test]
-    fn add_a_r8() {
-        for rrr in 0..=7u8 {
-            let (mut cpu, _) = setup();
-            let opcode = 0b1000_0000 | rrr;
-            let r: R8 = rrr.try_into().unwrap();
-
-            let v1 = 0x3b;
-            let v2 = 0x3b;
-
-            cpu.a.write(v1);
-            cpu.ld_r8(r, v2);
-
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::ADD(ADD::A(r)));
-
-            cpu.execute(i);
-            assert_eq!(cpu.a.val(), v1 + v2);
-
-            if v1 + v2 == 0 {
-                assert!(cpu.flag(Flag::Z));
-            }
-            assert!(!cpu.flag(Flag::N));
-            if bit::check_overflow(v1, v2, 3) {
-                assert!(cpu.flag(Flag::H));
-            }
-            if bit::check_overflow(v1, v2, 7) {
-                assert!(cpu.flag(Flag::C));
-            }
-        }
-    }
-
-    #[test]
-    fn add_a_n8() {
-        for n in 0..=u8::MAX {
-            let (mut cpu, mem) = setup();
-            let opcode = 0b11000110;
-
-            let v1 = 0x3b;
-
-            cpu.a.write(v1);
-            mem.lock().unwrap().write(cpu.pc, n);
-
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::ADD(ADD::A(R8::N8)));
-
-            cpu.execute(i);
-            assert_eq!(cpu.a.val(), v1.wrapping_add(n));
-
-            if v1.wrapping_add(n) == 0 {
-                assert!(cpu.flag(Flag::Z));
-            }
-            assert!(!cpu.flag(Flag::N));
-            if bit::check_overflow(v1, n, 3) {
-                assert!(cpu.flag(Flag::H));
-            }
-            if bit::check_overflow(v1, n, 7) {
-                assert!(cpu.flag(Flag::C));
-            }
-        }
-    }
-
-    #[test]
-    fn adc_a_r8() {
-        for rrr in 0..=7u8 {
-            let (mut cpu, _) = setup();
-            let opcode = 0b1000_1000 | rrr;
-            let r: R8 = rrr.try_into().unwrap();
-
-            let v1 = 0x3b;
-            let v2 = 0x3b;
-            let cf = 0x01;
-
-            cpu.set_flag(Flag::C);
-            cpu.a.write(v1);
-            cpu.ld_r8(r, v2);
-
-            let i = cpu.decode(opcode).unwrap();
-            assert_eq!(i.op(), Operation::ADC(r));
-
-            cpu.execute(i);
-            assert_eq!(cpu.a.val(), v1 + v2 + cf);
-
-            if v1 + v2 + cf == 0 {
-                assert!(cpu.flag(Flag::Z));
-            }
-            assert!(!cpu.flag(Flag::N));
-            if bit::check_overflow(v1, v2 + cf, 3) {
-                assert!(cpu.flag(Flag::H));
-            }
-            if bit::check_overflow(v1, v2 + cf, 7) {
-                assert!(cpu.flag(Flag::C));
-            }
-        }
-    }
-
-    #[test]
-    fn adc_a_n8() {
-        let (mut cpu, mem) = setup();
-        let opcode = 0b11001110;
-
-        let v1 = 0x3b;
-        let v2 = 0x3b;
-        let cf = 1u8;
-
-        cpu.set_flag(Flag::C);
-
-        cpu.a.write(v1);
-        mem.lock().unwrap().write(cpu.pc, v2);
-
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::ADC(R8::N8));
-
-        cpu.execute(i);
-        assert_eq!(cpu.a.val(), v1 + v2 + cf);
-
-        if v1 + v2 + cf == 0 {
-            assert!(cpu.flag(Flag::Z));
-        }
-        assert!(!cpu.flag(Flag::N));
-        if bit::check_overflow(v1, v2 + cf, 3) {
-            assert!(cpu.flag(Flag::H));
-        }
-        if bit::check_overflow(v1, v2 + cf, 7) {
-            assert!(cpu.flag(Flag::C));
-        }
-    }
-
-    #[test]
-    fn sub_r8() {
-        for rrr in 0..=7u8 {
-            for a_val in 0..=u8::MAX {
-                for r_val in 0..=u8::MAX {
-                    let r: R8 = rrr.try_into().unwrap();
-                    if r == R8::A && a_val != r_val {
-                        continue;
-                    }
-                    let (mut cpu, _) = setup();
-                    let op = 0b1001_0000 | rrr;
-
-                    cpu.a.write(a_val);
-                    cpu.ld_r8(r, r_val);
-
-                    let i = cpu.decode(op).unwrap();
-                    assert_eq!(i.op(), Operation::SUB(r));
-                    cpu.execute(i);
-
-                    let result = a_val.wrapping_sub(r_val);
-
-                    assert_eq!(cpu.a.val(), result);
-                    if result == 0 {
-                        assert!(cpu.flag(Flag::Z));
-                    }
-                    assert!(cpu.flag(Flag::N));
-                    if bit::check_borrow(a_val, r_val, 4) {
-                        assert!(cpu.flag(Flag::H));
-                    }
-                    if bit::check_borrow(a_val, r_val, 8) {
-                        assert!(cpu.flag(Flag::C));
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn sub_n8() {
-        for a_val in 0..=u8::MAX {
-            for n in 0..=u8::MAX {
-                let (mut cpu, mem) = setup();
-                let op = 0b1101_0110;
-
-                cpu.a.write(a_val);
-                mem.lock().unwrap().write(cpu.pc, n);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::SUB(R8::N8));
-                cpu.execute(i);
-
-                let result = a_val.wrapping_sub(n);
-
-                assert_eq!(cpu.a.val(), result);
-                if result == 0 {
-                    assert!(cpu.flag(Flag::Z));
-                }
-                assert!(cpu.flag(Flag::N));
-                if bit::check_borrow(a_val, n, 4) {
-                    assert!(cpu.flag(Flag::H));
-                }
-                if bit::check_borrow(a_val, n, 8) {
-                    assert!(cpu.flag(Flag::C));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn sbc_r8() {
-        for rrr in 0..=7u8 {
-            for a_val in 0..=u8::MAX {
-                for r_val in 0..=u8::MAX {
-                    for cf in 0..=1u8 {
-                        let r: R8 = rrr.try_into().unwrap();
-                        if r == R8::A && a_val != r_val {
-                            continue;
-                        }
-                        let (mut cpu, _) = setup();
-                        let op = 0b1001_1000 | rrr;
-
-                        cpu.set_flag_from_val(Flag::C, cf);
-
-                        cpu.a.write(a_val);
-                        cpu.ld_r8(r, r_val);
-
-                        let i = cpu.decode(op).unwrap();
-                        assert_eq!(i.op(), Operation::SBC(r));
-                        cpu.execute(i);
-
-                        let result = a_val.wrapping_sub(r_val.wrapping_add(cf));
-
-                        assert_eq!(cpu.a.val(), result);
-                        if result == 0 {
-                            assert!(cpu.flag(Flag::Z));
-                        }
-                        assert!(cpu.flag(Flag::N));
-                        if bit::check_borrow(a_val, r_val.wrapping_add(cf), 4) {
-                            assert!(cpu.flag(Flag::H));
-                        }
-                        if bit::check_borrow(a_val, r_val.wrapping_add(cf), 8) {
-                            assert!(cpu.flag(Flag::C));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn sbc_n8() {
-        for a_val in 0..=u8::MAX {
-            for n in 0..=u8::MAX {
-                for cf in 0..=1u8 {
-                    let (mut cpu, mem) = setup();
-                    let op = 0b1101_1110;
-
-                    cpu.set_flag_from_val(Flag::C, cf);
-
-                    cpu.a.write(a_val);
-                    mem.lock().unwrap().write(cpu.pc, n);
-
-                    let i = cpu.decode(op).unwrap();
-                    assert_eq!(i.op(), Operation::SBC(R8::N8));
-                    cpu.execute(i);
-
-                    let result = a_val.wrapping_sub(n.wrapping_add(cf));
-
-                    assert_eq!(cpu.a.val(), result);
-                    if result == 0 {
-                        assert!(cpu.flag(Flag::Z));
-                    }
-                    assert!(cpu.flag(Flag::N));
-                    if bit::check_borrow(a_val, n.wrapping_add(cf), 4) {
-                        assert!(cpu.flag(Flag::H));
-                    }
-                    if bit::check_borrow(a_val, n.wrapping_add(cf), 8) {
-                        assert!(cpu.flag(Flag::C));
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn cp_r8() {
-        for rrr in 0..=7u8 {
-            for a_val in 0..=u8::MAX {
-                for r_val in 0..=u8::MAX {
-                    let r: R8 = rrr.try_into().unwrap();
-                    if r == R8::A && a_val != r_val {
-                        continue;
-                    }
-                    let (mut cpu, _) = setup();
-                    let op = 0b1011_1000 | rrr;
-
-                    cpu.a.write(a_val);
-                    cpu.ld_r8(r, r_val);
-
-                    let i = cpu.decode(op).unwrap();
-                    assert_eq!(i.op(), Operation::CP(r));
-                    cpu.execute(i);
-
-                    let result = a_val.wrapping_sub(r_val);
-
-                    if result == 0 {
-                        assert!(cpu.flag(Flag::Z));
-                    }
-                    assert!(cpu.flag(Flag::N));
-                    if bit::check_borrow(a_val, r_val, 4) {
-                        assert!(cpu.flag(Flag::H));
-                    }
-                    if bit::check_borrow(a_val, r_val, 8) {
-                        assert!(cpu.flag(Flag::C));
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn cp_n8() {
-        for a_val in 0..=u8::MAX {
-            for n in 0..=u8::MAX {
-                let (mut cpu, mem) = setup();
-                let op = 0b1111_1110;
-
-                cpu.a.write(a_val);
-                mem.lock().unwrap().write(cpu.pc, n);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::CP(R8::N8));
-                cpu.execute(i);
-
-                let result = a_val.wrapping_sub(n);
-
-                if result == 0 {
-                    assert!(cpu.flag(Flag::Z));
-                }
-                assert!(cpu.flag(Flag::N));
-                if bit::check_borrow(a_val, n, 4) {
-                    assert!(cpu.flag(Flag::H));
-                }
-                if bit::check_borrow(a_val, n, 8) {
-                    assert!(cpu.flag(Flag::C));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn and_r8() {
-        for rrr in 0..=7u8 {
-            for a_val in 0..=u8::MAX {
-                for r_val in 0..=u8::MAX {
-                    let r: R8 = rrr.try_into().unwrap();
-                    if r == R8::A && a_val != r_val {
-                        continue;
-                    }
-                    let (mut cpu, _) = setup();
-                    let op = 0b1010_0000 | rrr;
-
-                    cpu.a.write(a_val);
-                    cpu.ld_r8(r, r_val);
-
-                    let i = cpu.decode(op).unwrap();
-                    assert_eq!(i.op(), Operation::AND(r));
-                    cpu.execute(i);
-
-                    let result = a_val & r_val;
-
-                    assert_eq!(cpu.a.val(), result);
-                    if result == 0 {
-                        assert!(cpu.flag(Flag::Z));
-                    }
-                    assert!(!cpu.flag(Flag::N));
-                    assert!(cpu.flag(Flag::H));
-                    assert!(!cpu.flag(Flag::C));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn and_n8() {
-        for a_val in 0..=u8::MAX {
-            for n in 0..=u8::MAX {
-                let (mut cpu, mem) = setup();
-                let op = 0b1110_0110;
-
-                cpu.a.write(a_val);
-                mem.lock().unwrap().write(cpu.pc, n);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::AND(R8::N8));
-                cpu.execute(i);
-
-                let result = a_val & n;
-
-                assert_eq!(cpu.a.val(), result);
-                if result == 0 {
-                    assert!(cpu.flag(Flag::Z));
-                }
-                assert!(!cpu.flag(Flag::N));
-                assert!(cpu.flag(Flag::H));
-                assert!(!cpu.flag(Flag::C));
-            }
-        }
-    }
-
-    #[test]
-    fn xor_r8() {
-        for rrr in 0..=7u8 {
-            for a_val in 0..=u8::MAX {
-                for r_val in 0..=u8::MAX {
-                    let r: R8 = rrr.try_into().unwrap();
-                    if r == R8::A && a_val != r_val {
-                        continue;
-                    }
-                    let (mut cpu, _) = setup();
-                    let op = 0b1010_1000 | rrr;
-
-                    cpu.a.write(a_val);
-                    cpu.ld_r8(r, r_val);
-
-                    let i = cpu.decode(op).unwrap();
-                    assert_eq!(i.op(), Operation::XOR(r));
-                    cpu.execute(i);
-
-                    let result = a_val ^ r_val;
-
-                    assert_eq!(cpu.a.val(), result);
-                    if result == 0 {
-                        assert!(cpu.flag(Flag::Z));
-                    }
-                    assert!(!cpu.flag(Flag::N));
-                    assert!(!cpu.flag(Flag::H));
-                    assert!(!cpu.flag(Flag::C));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn xor_n8() {
-        for a_val in 0..=u8::MAX {
-            for n in 0..=u8::MAX {
-                let (mut cpu, mem) = setup();
-                let op = 0b1110_1110;
-
-                cpu.a.write(a_val);
-                mem.lock().unwrap().write(cpu.pc, n);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::XOR(R8::N8));
-                cpu.execute(i);
-
-                let result = a_val ^ n;
-
-                assert_eq!(cpu.a.val(), result);
-                if result == 0 {
-                    assert!(cpu.flag(Flag::Z));
-                }
-                assert!(!cpu.flag(Flag::N));
-                assert!(!cpu.flag(Flag::H));
-                assert!(!cpu.flag(Flag::C));
-            }
-        }
-    }
-
-    #[test]
-    fn or_r8() {
-        for rrr in 0..=7u8 {
-            for a_val in 0..=u8::MAX {
-                for r_val in 0..=u8::MAX {
-                    let r: R8 = rrr.try_into().unwrap();
-                    if r == R8::A && a_val != r_val {
-                        continue;
-                    }
-                    let (mut cpu, _) = setup();
-                    let op = 0b1011_0000 | rrr;
-
-                    cpu.a.write(a_val);
-                    cpu.ld_r8(r, r_val);
-
-                    let i = cpu.decode(op).unwrap();
-                    assert_eq!(i.op(), Operation::OR(r));
-                    cpu.execute(i);
-
-                    let result = a_val | r_val;
-
-                    assert_eq!(cpu.a.val(), result);
-                    if result == 0 {
-                        assert!(cpu.flag(Flag::Z));
-                    }
-                    assert!(!cpu.flag(Flag::N));
-                    assert!(!cpu.flag(Flag::H));
-                    assert!(!cpu.flag(Flag::C));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn or_n8() {
-        for a_val in 0..=u8::MAX {
-            for n in 0..=u8::MAX {
-                let (mut cpu, mem) = setup();
-                let op = 0b1111_0110;
-
-                cpu.a.write(a_val);
-                mem.lock().unwrap().write(cpu.pc, n);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::OR(R8::N8));
-                cpu.execute(i);
-
-                let result = a_val | n;
-
-                assert_eq!(cpu.a.val(), result);
-                if result == 0 {
-                    assert!(cpu.flag(Flag::Z));
-                }
-                assert!(!cpu.flag(Flag::N));
-                assert!(!cpu.flag(Flag::H));
-                assert!(!cpu.flag(Flag::C));
-            }
-        }
-    }
-
-    #[test]
-    fn daa() {
-        for cf in 0..=1u8 {
-            for hf in 0..=1u8 {
-                for nf in 0..=1u8 {
-                    for val in 0..=u8::MAX {
-                        let (mut cpu, _) = setup();
-                        let op = 0b0010_0111;
-
-                        cpu.set_flag_from_val(Flag::C, cf);
-                        cpu.set_flag_from_val(Flag::H, hf);
-                        cpu.set_flag_from_val(Flag::N, nf);
-                        cpu.a.write(val);
-
-                        let i = cpu.decode(op).unwrap();
-                        assert_eq!(i.op(), Operation::DAA);
-                        cpu.execute(i);
-
-                        if nf == 1 {
-                            let mut adj = 0u8;
-                            if hf == 1 {
-                                adj = adj.wrapping_add(0x06);
-                            }
-                            if cf == 1 {
-                                adj = adj.wrapping_add(0x60);
-                            }
-                            let result = val.wrapping_sub(adj);
-                            assert_eq!(cpu.a.val(), result);
-                            if result == 0 {
-                                assert!(cpu.zf());
-                            }
-                        } else {
-                            let mut adj = 0u8;
-                            if hf == 1 || (val & 0xF) > 0x9 {
-                                adj = adj.wrapping_add(0x06);
-                            }
-                            if cf == 1 || val > 0x99 {
-                                adj = adj.wrapping_add(0x60);
-                                assert!(cpu.cf());
-                            }
-                            let result = val.wrapping_add(adj);
-                            assert_eq!(cpu.a.val(), result);
-                            if result == 0 {
-                                assert!(cpu.zf());
-                            }
-                        }
-
-                        assert!(!cpu.flag(Flag::H));
-                    }
-                }
-            }
-        }
-    }
-
-    // ROT INSTRUCTIONS
-
-    #[test]
-    fn rlca() {
-        for v in 0..=u8::MAX {
-            let (mut cpu, _) = setup();
-            let op = 0b0000_0111;
-            cpu.a.write(v);
-
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::RLCA);
-            cpu.execute(i);
-
-            // cf := a.7, a := [a << 1] + cf
-            let a = v;
-            let a7 = bit::get(a, 7);
-            let a = (a << 1) + a7;
-
-            assert!(cpu.zf());
-            assert!(!cpu.nf());
-            assert!(!cpu.hf());
-            assert_eq!(cpu.cf() as u8, a7);
-            assert_eq!(cpu.a.val(), a);
-        }
-    }
-
-    #[test]
-    fn rrca() {
-        for v in 0..=u8::MAX {
-            let (mut cpu, _) = setup();
-            let op = 0b0000_1111;
-            cpu.a.write(v);
-
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::RRCA);
-            cpu.execute(i);
-
-            let a = v;
-            let a0 = bit::get(a, 0);
-            let a = (a >> 1) + (a0 << 7);
-
-            assert!(cpu.zf());
-            assert!(!cpu.nf());
-            assert!(!cpu.hf());
-            assert_eq!(cpu.cf() as u8, a0);
-            assert_eq!(cpu.a.val(), a);
-        }
-    }
-
-    #[test]
-    fn rla() {
-        for v in 0..=u8::MAX {
-            let (mut cpu, _) = setup();
-            let op = 0b0001_0111;
-            cpu.a.write(v);
-
-            let ocf = cpu.cf() as u8;
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::RLA);
-            cpu.execute(i);
-
-            let a = v;
-            let a7 = bit::get(a, 7);
-            let a = (a << 1) + ocf;
-
-            assert!(cpu.zf());
-            assert!(!cpu.nf());
-            assert!(!cpu.hf());
-            assert_eq!(cpu.cf() as u8, a7);
-            assert_eq!(cpu.a.val(), a);
-        }
-    }
-
-    #[test]
-    fn rra() {
-        for v in 0..=u8::MAX {
-            let (mut cpu, _) = setup();
-            let op = 0b0001_1111;
-            cpu.a.write(v);
-
-            let ocf = cpu.cf() as u8;
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::RRA);
-            cpu.execute(i);
-
-            let a = v;
-            let a0 = bit::get(a, 0);
-            let a = (a >> 1) + (ocf << 7);
-
-            assert!(cpu.zf());
-            assert!(!cpu.nf());
-            assert!(!cpu.hf());
-            assert_eq!(cpu.cf() as u8, a0);
-            assert_eq!(cpu.a.val(), a);
-        }
-    }
-
-    #[test]
-    fn rr_r() {
-        for rrr in 0..=7u8 {
-            for v in 0..=u8::MAX {
-                let (mut cpu, _) = setup();
-                let prefix = cpu.decode(0xCB).unwrap();
-                cpu.execute(prefix);
-
-                let op = 0b0001_1000 | rrr;
-                let r: R8 = rrr.try_into().unwrap();
-                cpu.ld_r8(r, v);
-
-                let ocf = cpu.cf() as u8;
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::RR(r));
-                cpu.execute(i);
-
-                let rv = v;
-                let r0 = bit::get(rv, 0);
-                let rv = (rv >> 1) + (ocf << 7);
-
-                if rv == 0 {
-                    assert!(cpu.zf());
-                }
-                assert!(!cpu.nf());
-                assert!(!cpu.hf());
-                assert_eq!(cpu.cf() as u8, r0);
-                assert_eq!(cpu.src_r8(r), rv);
-            }
-        }
-    }
-
-    #[test]
-    fn rl_r() {
-        for rrr in 0..=7u8 {
-            for v in 0..=u8::MAX {
-                let (mut cpu, _) = setup();
-                let prefix = cpu.decode(0xCB).unwrap();
-                cpu.execute(prefix);
-
-                let op = 0b0001_0000 | rrr;
-                let r: R8 = rrr.try_into().unwrap();
-                cpu.ld_r8(r, v);
-
-                let ocf = cpu.cf() as u8;
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::RL(r));
-                cpu.execute(i);
-
-                let rv = v;
-                let r7 = bit::get(rv, 7);
-                let rv = (rv << 1) + ocf;
-
-                if rv == 0 {
-                    assert!(cpu.zf());
-                }
-                assert!(!cpu.nf());
-                assert!(!cpu.hf());
-                assert_eq!(cpu.cf() as u8, r7);
-                assert_eq!(cpu.src_r8(r), rv);
-            }
-        }
-    }
-
-    #[test]
-    fn rrc_r() {
-        for rrr in 0..=7u8 {
-            for v in 0..=u8::MAX {
-                let (mut cpu, _) = setup();
-                let prefix = cpu.decode(0xCB).unwrap();
-                cpu.execute(prefix);
-
-                let op = 0b00001000 | rrr;
-                let r: R8 = rrr.try_into().unwrap();
-                cpu.ld_r8(r, v);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::RRC(r));
-                cpu.execute(i);
-
-                let rv = v;
-                let r0 = bit::get(rv, 0);
-                let rv = (rv >> 1) + (r0 << 7);
-
-                if rv == 0 {
-                    assert!(cpu.zf());
-                }
-                assert!(!cpu.nf());
-                assert!(!cpu.hf());
-                assert_eq!(cpu.cf() as u8, r0);
-                assert_eq!(cpu.src_r8(r), rv);
-            }
-        }
-    }
-
-    #[test]
-    fn rlc_r() {
-        for rrr in 0..=7u8 {
-            for v in 0..=u8::MAX {
-                let (mut cpu, _) = setup();
-                let prefix = cpu.decode(0xCB).unwrap();
-                cpu.execute(prefix);
-
-                let op = 0b00000000 | rrr;
-                let r: R8 = rrr.try_into().unwrap();
-                cpu.ld_r8(r, v);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::RLC(r));
-                cpu.execute(i);
-
-                // cf := a.7, a := [a << 1] + cf
-                let rv = v;
-                let r7 = bit::get(rv, 7);
-                let rv = (rv << 1) + r7;
-
-                if rv == 0 {
-                    assert!(cpu.zf());
-                }
-                assert!(!cpu.nf());
-                assert!(!cpu.hf());
-                assert_eq!(cpu.cf() as u8, r7);
-                assert_eq!(cpu.src_r8(r), rv);
-            }
-        }
-    }
-
-    #[test]
-    fn sla_r() {
-        for rrr in 0..=7u8 {
-            for v in 0..=u8::MAX {
-                let (mut cpu, _) = setup();
-                let prefix = cpu.decode(0xCB).unwrap();
-                cpu.execute(prefix);
-
-                let op = 0b0010_0000 | rrr;
-                let r: R8 = rrr.try_into().unwrap();
-                cpu.ld_r8(r, v);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::SLA(r));
-                cpu.execute(i);
-
-                let rv = v;
-                let r7 = bit::get(rv, 7);
-                let rv = rv << 1;
-
-                if rv == 0 {
-                    assert!(cpu.zf());
-                }
-                assert!(!cpu.nf());
-                assert!(!cpu.hf());
-
-                assert_eq!(cpu.cf() as u8, r7);
-                assert_eq!(cpu.src_r8(r), rv);
-            }
-        }
-    }
-
-    #[test]
-    fn sra_r() {
-        for rrr in 0..=7u8 {
-            for v in 0..=u8::MAX {
-                let (mut cpu, _) = setup();
-                let prefix = cpu.decode(0xCB).unwrap();
-                cpu.execute(prefix);
-
-                let op = 0b0010_1000 | rrr;
-                let r: R8 = rrr.try_into().unwrap();
-                cpu.ld_r8(r, v);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::SRA(r));
-                cpu.execute(i);
-
-                let rv = v;
-                let r7 = bit::get(rv, 7) << 7;
-                let r0 = bit::get(rv, 0);
-                let rv = (rv >> 1) | r7;
-
-                if rv == 0 {
-                    assert!(cpu.zf());
-                }
-                assert!(!cpu.nf());
-                assert!(!cpu.hf());
-
-                assert_eq!(cpu.cf() as u8, r0);
-                assert_eq!(cpu.src_r8(r), rv);
-            }
-        }
-    }
-
-    #[test]
-    fn srl_r() {
-        for rrr in 0..=7u8 {
-            for v in 0..=u8::MAX {
-                let (mut cpu, _) = setup();
-                let prefix = cpu.decode(0xCB).unwrap();
-                cpu.execute(prefix);
-
-                let op = 0b0011_1000 | rrr;
-                let r: R8 = rrr.try_into().unwrap();
-                cpu.ld_r8(r, v);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::SRL(r));
-                cpu.execute(i);
-
-                let rv = v;
-                let r0 = bit::get(rv, 0);
-                let rv = rv >> 1;
-
-                if rv == 0 {
-                    assert!(cpu.zf());
-                }
-                assert!(!cpu.nf());
-                assert!(!cpu.hf());
-
-                assert_eq!(cpu.cf() as u8, r0);
-                assert_eq!(cpu.src_r8(r), rv);
-            }
-        }
-    }
-
-    #[test]
-    fn swap() {
-        for rrr in 0..=7u8 {
-            for v in 0..=u8::MAX {
-                let (mut cpu, _) = setup();
-                let prefix = cpu.decode(0xCB).unwrap();
-                cpu.execute(prefix);
-
-                let op = 0b0011_0000 | rrr;
-                let r: R8 = rrr.try_into().unwrap();
-                cpu.ld_r8(r, v);
-
-                let i = cpu.decode(op).unwrap();
-                assert_eq!(i.op(), Operation::SWAP(r));
-                cpu.execute(i);
-
-                let high = (v & 0xF) << 4;
-                let low = (v & 0xF0) >> 4;
-                let rv = high | low;
-
-                if rv == 0 {
-                    assert!(cpu.zf());
-                }
-                assert!(!cpu.nf());
-                assert!(!cpu.hf());
-                assert!(!cpu.cf());
-
-                assert_eq!(cpu.src_r8(r), rv);
-            }
-        }
-    }
-
-    // BITWISE INSTRUCTIONS
-
-    #[test]
-    fn bit_is_set() {
-        for rrr in 0..=7u8 {
-            for bbb in 0..=7u8 {
-                for v in 0..=u8::MAX {
-                    let (mut cpu, _) = setup();
-                    let prefix = cpu.decode(0xCB).unwrap();
-                    cpu.execute(prefix);
-
-                    let op = 0b0100_0000 | (bbb << 3) | rrr;
-                    let b: B3 = bbb.into();
-                    let r: R8 = rrr.try_into().unwrap();
-                    cpu.ld_r8(r, v);
-
-                    let bit_set = bit::is_set(v, b.val());
-
-                    let i = cpu.decode(op).unwrap();
-                    assert_eq!(i.op(), Operation::BIT(b, r));
-                    cpu.execute(i);
-
-                    if bit_set {
-                        assert!(cpu.zf());
-                    }
-                    assert!(!cpu.nf());
-                    assert!(cpu.hf());
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn bit_res() {
-        for rrr in 0..=7u8 {
-            for bbb in 0..=7u8 {
-                for v in 0..=u8::MAX {
-                    let (mut cpu, _) = setup();
-                    let prefix = cpu.decode(0xCB).unwrap();
-                    cpu.execute(prefix);
-
-                    let op = 0b1000_0000 | (bbb << 3) | rrr;
-                    let b: B3 = bbb.into();
-                    let r: R8 = rrr.try_into().unwrap();
-                    cpu.ld_r8(r, v);
-
-                    let i = cpu.decode(op).unwrap();
-                    assert_eq!(i.op(), Operation::RES(b, r));
-                    cpu.execute(i);
-
-                    assert!(!bit::is_set(cpu.src_r8(r), b.val()));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn bit_set() {
-        for rrr in 0..=7u8 {
-            for bbb in 0..=7u8 {
-                for v in 0..=u8::MAX {
-                    let (mut cpu, _) = setup();
-                    let prefix = cpu.decode(0xCB).unwrap();
-                    cpu.execute(prefix);
-
-                    let op = 0b1100_0000 | (bbb << 3) | rrr;
-                    let b: B3 = bbb.into();
-                    let r: R8 = rrr.try_into().unwrap();
-                    cpu.ld_r8(r, v);
-
-                    let i = cpu.decode(op).unwrap();
-                    assert_eq!(i.op(), Operation::SET(b, r));
-                    cpu.execute(i);
-
-                    assert!(bit::is_set(cpu.src_r8(r), b.val()));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn bit_cpl() {
-        for v in 0..=u8::MAX {
-            let (mut cpu, _) = setup();
-            let op = 0b0010_1111;
-            cpu.a.write(v);
-
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::CPL);
-            cpu.execute(i);
-
-            assert_eq!(!v, cpu.a.val());
-            assert!(cpu.nf());
-            assert!(cpu.hf());
-        }
-    }
-
-    // CONTROL FLOW INSTRUCTIONS
-
-    #[test]
-    fn rst() {
-        for ttt in 0..=7u8 {
-            let (mut cpu, mem) = setup();
-            let op = 0b1100_0111 | (ttt << 3);
-            let t: T3 = ttt.into();
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::RST(t));
-
-            let sp = cpu.sp;
-            let pc = cpu.pc;
-
-            cpu.execute(i);
-
-            assert_eq!(mem.lock().unwrap().read_word(cpu.sp), pc);
-            assert_eq!(cpu.sp, sp - 2);
-            assert_eq!(cpu.pc as u8, t.val());
-        }
-    }
-
-    #[test]
-    fn call() {
-        let (mut cpu, mem) = setup();
-        let op = 0b11001101;
-        let val = 0xDEAD;
-
-        mem.lock().unwrap().write_word(cpu.pc, val);
-        let i = cpu.decode(op).unwrap();
-        assert_eq!(i.op(), Operation::CALL);
-
-        let sp = cpu.sp;
-        let pc = cpu.pc;
-
-        cpu.execute(i);
-
-        assert_eq!(cpu.sp, sp - 2);
-        assert_eq!(mem.lock().unwrap().read_word(cpu.sp), pc);
-        assert_eq!(cpu.pc, val);
-    }
-
-    #[test]
-    fn call_cond() {
-        // false
-        for cc in 0..=3u8 {
-            let (mut cpu, mem) = setup();
-            let cond: Cond = cc.try_into().unwrap();
-            let op = 0b11000100 | (cc << 3);
-            let val = 0xDEAD;
-
-            let cond_met = cpu.cc(cond);
-
-            cpu.sp = 0xD00D;
-            mem.lock().unwrap().write_word(cpu.pc, val);
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::CALLC(cond));
-
-            let sp = cpu.sp;
-            let pc = cpu.pc;
-
-            cpu.execute(i);
-
-            if cond_met {
-                assert_eq!(cpu.sp, sp - 2);
-                assert_eq!(mem.lock().unwrap().read_word(cpu.sp), pc);
-                assert_eq!(cpu.pc, val);
-            } else {
-                assert_ne!(cpu.sp, sp - 2);
-                assert_ne!(mem.lock().unwrap().read_word(cpu.sp), pc);
-                assert_ne!(cpu.pc, val);
-            }
-        }
-    }
-
-    #[test]
-    fn jp() {
-        let (mut cpu, mem) = setup();
-        let val = 0xDEAD;
-        let op = 0b11000011;
-
-        mem.lock().unwrap().write_word(cpu.pc, val);
-        let i = cpu.decode(op).unwrap();
-        assert_eq!(i.op(), Operation::JP(R16::N16));
-
-        cpu.execute(i);
-        assert_eq!(cpu.pc, val);
-    }
-
-    #[test]
-    fn jp_hl() {
-        let (mut cpu, _) = setup();
-        let val = 0xDEAD;
-        let op = 0b11101001;
-        cpu.hl().write(val);
-        let i = cpu.decode(op).unwrap();
-        assert_eq!(i.op(), Operation::JP(R16::HL));
-        cpu.execute(i);
-        assert_eq!(cpu.pc, val);
-    }
-
-    #[test]
-    fn jp_cond() {
-        for cc in 0..=3u8 {
-            let (mut cpu, mem) = setup();
-            let cond: Cond = cc.try_into().unwrap();
-            let op = 0b1100_0010 | (cc << 3);
-            let val = 0xDEAD;
-
-            mem.lock().unwrap().write_word(cpu.pc, val);
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::JPC(cond, R16::N16));
-
-            cpu.execute(i);
-
-            if cpu.cc(cond) {
-                assert_eq!(cpu.pc, val);
-            }
-        }
-    }
-
-    #[test]
-    fn jr() {
-        let (mut cpu, mem) = setup();
-        let op = 0b00011000;
-        let val = 0x1E;
-        mem.lock().unwrap().write_word(cpu.pc, val);
-
-        let pc = cpu.pc;
-
-        let i = cpu.decode(op).unwrap();
-        assert_eq!(i.op(), Operation::JR(JR::N8));
-        cpu.execute(i);
-
-        assert_eq!(cpu.pc, pc + 1 + val);
-    }
-
-    #[test]
-    fn jr_cond() {
-        for cc in 0..=3u8 {
-            let (mut cpu, mem) = setup();
-            let op = 0b0010_0000 | (cc << 3);
-            let cond: Cond = cc.try_into().unwrap();
-            let val = 0x1E;
-            mem.lock().unwrap().write_word(cpu.pc, val);
-            let pc = cpu.pc;
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::JR(JR::Cond(cond)));
-            cpu.execute(i);
-            if cpu.cc(cond) {
-                assert_eq!(cpu.pc, pc + 1 + val);
-            }
-        }
-    }
-
-    #[test]
-    fn ret() {
-        let (mut cpu, mem) = setup();
-        let op = 0b1100_1001;
-        let addr = 0xeeee;
-        cpu.sp = addr;
-        let sp = cpu.sp;
-        let val = 0xDEAD;
-        mem.lock().unwrap().write_word(addr, val);
-
-        let i = cpu.decode(op).unwrap();
-        assert_eq!(i.op(), Operation::RET);
-        cpu.execute(i);
-
-        assert_eq!(cpu.pc, mem.lock().unwrap().read_word(addr));
-        assert_eq!(val, mem.lock().unwrap().read_word(addr));
-        assert_eq!(cpu.sp, sp + 2);
-    }
-
-    #[test]
-    fn ret_cond() {
-        for cc in 0..=3u8 {
-            let cond: Cond = cc.try_into().unwrap();
-            let (mut cpu, mem) = setup();
-            let op = 0b1100_0000 | (cc << 3);
-            let addr = 0xeeee;
-            cpu.sp = addr;
-            let sp = cpu.sp;
-            let val = 0xDEAD;
-            mem.lock().unwrap().write_word(addr, val);
-
-            let i = cpu.decode(op).unwrap();
-            assert_eq!(i.op(), Operation::RETC(cond));
-            cpu.execute(i);
-
-            if cpu.cc(cond) {
-                assert_eq!(cpu.pc, mem.lock().unwrap().read_word(addr));
-                assert_eq!(cpu.pc, val);
-                assert_eq!(cpu.sp, sp + 2);
-            } else {
-                assert_ne!(cpu.pc, mem.lock().unwrap().read_word(addr));
-                assert_ne!(cpu.pc, val);
-                assert_ne!(cpu.sp, sp + 2);
-            }
-        }
-    }
-
-    #[test]
-    fn reti() {
-        let (mut cpu, mem) = setup();
-        let op = 0b1101_1001;
-        let addr = 0xeeee;
-        cpu.sp = addr;
-        let sp = cpu.sp;
-        let val = 0xDEAD;
-        mem.lock().unwrap().write_word(addr, val);
-
-        let i = cpu.decode(op).unwrap();
-        assert_eq!(i.op(), Operation::RETI);
-        cpu.execute(i);
-
-        assert_eq!(cpu.pc, mem.lock().unwrap().read_word(addr));
-        assert_eq!(val, mem.lock().unwrap().read_word(addr));
-        assert_eq!(cpu.sp, sp + 2);
-        assert!(cpu.ime);
-    }
-
-    // CPU CONTROL INSTRUCTIONS
-
-    #[test]
-    fn di() {
-        let (mut cpu, _) = setup();
-        cpu.ime = true;
-        let opcode = 0b11110011;
-        let i = cpu.decode(opcode).unwrap();
-        cpu.i = Some(i);
-        cpu.tick().unwrap();
-        cpu.tick().unwrap();
-        assert!(!cpu.ime);
-    }
-
-    #[test]
-    fn ei() {
-        let (mut cpu, _) = setup();
-        let opcode = 0b11111011;
-        let i = cpu.decode(opcode).unwrap();
-        cpu.i = Some(i);
-        cpu.tick().unwrap();
-        cpu.tick().unwrap();
-        cpu.tick().unwrap();
-        assert!(cpu.ime);
-    }
-
-    #[test]
-    fn stop() {
-        let opcode = 0b00010000;
-        let (mut cpu, mem) = setup();
-        for _ in 0..25 {
-            mem.lock().unwrap().inc_div();
-        }
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::STOP);
-        cpu.execute(i);
-        assert!(cpu.stop);
-        assert!(mem.lock().unwrap().div() == 0);
-    }
-
-    #[test]
-    fn halt() {
-        let opcode = 0b0111_0110;
-        let (mut cpu, _) = setup();
-        let i = cpu.decode(opcode).unwrap();
-        assert_eq!(i.op(), Operation::HALT);
-        cpu.execute(i);
-        assert!(cpu.halt);
-    }
-
-    #[test]
-    fn scf() {
-        let op = 0b00110111;
-        let (mut cpu, _) = setup();
-        let i = cpu.decode(op).unwrap();
-        assert_eq!(i.op(), Operation::SCF);
-        cpu.execute(i);
-        assert!(!cpu.flag(Flag::N));
-        assert!(!cpu.flag(Flag::H));
-        assert!(cpu.flag(Flag::C));
-    }
-
-    #[test]
-    fn ccf() {
-        let op = 0b00111111;
-        let (mut cpu, _) = setup();
-        let i = cpu.decode(op).unwrap();
-        assert_eq!(i.op(), Operation::CCF);
-        let cf = cpu.cf();
-
-        cpu.execute(i);
-        assert!(!cpu.flag(Flag::N));
-        assert_eq!(cpu.flag(Flag::H), cf);
-        assert_eq!(cpu.flag(Flag::C), !cf);
-    }
-
-    #[test]
-    fn div_tick() {
-        let (mut cpu, mem) = setup();
-        let d = mem.lock().unwrap().div();
-        cpu.tick().unwrap();
-        let mut cycles = 0;
-        while cycles < (CYCLES_PER_DIV_TICK + 4) {
-            cycles += cpu.tick().unwrap() as u64;
-        }
-        assert_eq!(mem.lock().unwrap().div(), d + 1);
-    }
-
-    #[test]
-    fn div_tick_stop() {
-        let (mut cpu, mem) = setup();
-        cpu.tick().unwrap();
-        cpu.stop();
-        let mut cycles = 0;
-        while cycles < (CYCLES_PER_DIV_TICK + 4) {
-            cycles += cpu.tick().unwrap() as u64;
-        }
-        assert_eq!(mem.lock().unwrap().div(), 0);
     }
 }
