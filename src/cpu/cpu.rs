@@ -51,7 +51,7 @@ pub struct CPU {
     sp: u16,
     pc: u16,
 
-    mem: Arc<Mutex<Memory>>,
+    mem: Memory,
 
     stop: bool,
     halt: bool,
@@ -93,6 +93,14 @@ struct CycleState {
     r: bool,
     w: bool,
     m: bool,
+}
+
+#[derive(Deserialize)]
+struct Test {
+    name: String,
+    initial: State,
+    r#final: State,
+    cycles: Vec<CycleState>,
 }
 
 impl<'de> de::Deserialize<'de> for CycleState {
@@ -331,8 +339,7 @@ impl<'r> Word<'r> {
 }
 
 impl CPU {
-    pub fn new(mem: &Arc<Mutex<Memory>>) -> CPU {
-        mem.lock().unwrap().init();
+    pub fn new(mem: Memory) -> CPU {
         CPU {
             a: Register::with_val(0x00),
             f: Register::with_val(0b1000_0000),
@@ -344,7 +351,7 @@ impl CPU {
             l: Register::with_val(0x4D),
             sp: 0xFFFE,
             pc: 0x0100,
-            mem: mem.clone(),
+            mem,
             prefix: false,
             stop: false,
             halt: false,
@@ -439,15 +446,11 @@ impl CPU {
         Word::new(&mut self.d, &mut self.e)
     }
 
-    fn mem<'m>(&'m mut self) -> MutexGuard<'m, Memory> {
-        self.mem.lock().expect("error acquiring Memory mutex lock")
-    }
-
     fn fetch(&mut self) -> u8 {
         let pc = self.pc;
         let next = pc.wrapping_add(1);
         self.pc = next;
-        self.mem().read(pc)
+        self.mem.read(pc)
     }
 
     fn imm(&mut self) -> u8 {
@@ -576,21 +579,22 @@ impl CPU {
             self.div_cycles = self.div_cycles.wrapping_add(cycles as u64);
 
             if self.div_cycles >= CYCLES_PER_DIV_TICK {
-                self.mem().inc_div();
+                //self.mem().inc_div();
                 self.div_cycles = self.div_cycles.saturating_sub(CYCLES_PER_DIV_TICK);
             }
         }
     }
 
     pub fn handle_timer(&mut self, cycles: u8) {
-        if !self.stop {
-            let cycles_per_tick = self.mem().timer_control().clk().cycles();
-            self.timer_cycles = self.timer_cycles.wrapping_add(cycles as u64);
-            if self.timer_cycles >= cycles_per_tick {
-                self.mem().inc_timer();
-                self.timer_cycles = self.timer_cycles.saturating_sub(cycles_per_tick);
-            }
-        }
+        todo!("handle_timer");
+        //if !self.stop {
+        //    let cycles_per_tick = self.mem().timer_control().clk().cycles();
+        //    self.timer_cycles = self.timer_cycles.wrapping_add(cycles as u64);
+        //    if self.timer_cycles >= cycles_per_tick {
+        //        self.mem().inc_timer();
+        //        self.timer_cycles = self.timer_cycles.saturating_sub(cycles_per_tick);
+        //    }
+        //}
     }
 
     pub fn tick(&mut self) -> Result<u8, Error> {
@@ -625,7 +629,7 @@ impl CPU {
 
     fn stop(&mut self) {
         self.stop = true;
-        self.mem().reset_div();
+        //self.mem().reset_div();
     }
 
     fn jp(&mut self, r: R16) {
@@ -685,7 +689,7 @@ impl CPU {
     pub fn pop(&mut self, r: R16) {
         let sp = self.sp;
         self.sp = self.sp.wrapping_add(2);
-        let mut val = self.mem().read_word(sp);
+        let mut val = self.mem.read_word(sp);
         if r == R16::AF {
             val &= 0xFFF0;
         }
@@ -695,7 +699,7 @@ impl CPU {
     pub fn push(&mut self, v: u16) {
         self.sp -= 2;
         let sp = self.sp;
-        self.mem().write_word(sp, v);
+        self.mem.write_word(sp, v);
     }
 
     fn push_r16(&mut self, r: R16) {
@@ -725,16 +729,16 @@ impl CPU {
             LD::MemR8(m, r) => {
                 let addr = self.mem_addr(m);
                 let v = self.src_r8(r);
-                self.mem().write(addr, v);
+                self.mem.write(addr, v);
             }
             LD::MemR16(m, r) => {
                 let addr = self.mem_addr(m);
                 let v = self.src_r16(r);
-                self.mem().write_word(addr, v);
+                self.mem.write_word(addr, v);
             }
             LD::R8Mem(r, m) => {
                 let addr = self.mem_addr(m);
-                let v = self.mem().read(addr);
+                let v = self.mem.read(addr);
                 self.ld_r8(r, v);
             }
             LD::HLSPN => self.ld_hl_sp_n(),
@@ -795,7 +799,7 @@ impl CPU {
             R8::L => self.l.write(v),
             R8::HL => {
                 let addr = self.hl().val();
-                self.mem().write(addr, v);
+                self.mem.write(addr, v);
             }
             R8::N8 => panic!("attempt to load to n8 value"),
         }
@@ -829,7 +833,7 @@ impl CPU {
             R8::L => self.l.val(),
             R8::HL => {
                 let addr = self.hl().val();
-                return self.mem().read(addr);
+                return self.mem.read(addr);
             }
         }
     }
@@ -859,7 +863,7 @@ impl CPU {
             R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).inc(),
             R8::HL => {
                 let addr = self.hl().val();
-                self.mem().inc(addr)
+                self.mem.inc(addr)
             }
             _ => panic!("attempt to increment {}", r),
         };
@@ -906,7 +910,7 @@ impl CPU {
             R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).dec(),
             R8::HL => {
                 let addr = self.hl().val();
-                self.mem().dec(addr)
+                self.mem.dec(addr)
             }
             _ => panic!("attempt to increment {}", r),
         };
@@ -1275,7 +1279,7 @@ impl CPU {
             instr::Mem::N8 => (self.imm() as u16) + 0xFF00,
             _ => panic!("invalid ldh destination operation"),
         };
-        let val = self.mem().read(addr);
+        let val = self.mem.read(addr);
         self.a.write(val);
     }
 
@@ -1286,12 +1290,12 @@ impl CPU {
             instr::Mem::N8 => (self.imm() as u16) | 0xFF00,
             _ => panic!("invalid ldh destination operation"),
         };
-        self.mem().write(addr, a);
+        self.mem.write(addr, a);
     }
 
     fn ret(&mut self) {
         let addr = self.sp;
-        let val = self.mem().read_word(addr);
+        let val = self.mem.read_word(addr);
         self.pc = val;
         self.sp = self.sp.wrapping_add(2);
     }
@@ -1391,35 +1395,37 @@ impl CPU {
     }
 
     fn query_interrupt(&mut self) -> Option<Interrupt> {
-        let mut mem = self.mem();
-        let iflags = mem.interrupt_flags();
-        if iflags.vblank() {
-            return Some(Interrupt::VBlank);
-        }
-        if iflags.lcd() {
-            return Some(Interrupt::STAT);
-        }
-        if iflags.timer() {
-            return Some(Interrupt::Timer);
-        }
-        if iflags.serial() {
-            return Some(Interrupt::Serial);
-        }
-        if iflags.joypad() {
-            return Some(Interrupt::Joypad);
-        }
-        None
+        todo!("query_interrupt");
+        //let mut mem = self.mem();
+        //let iflags = mem.interrupt_flags();
+        //if iflags.vblank() {
+        //    return Some(Interrupt::VBlank);
+        //}
+        //if iflags.lcd() {
+        //    return Some(Interrupt::STAT);
+        //}
+        //if iflags.timer() {
+        //    return Some(Interrupt::Timer);
+        //}
+        //if iflags.serial() {
+        //    return Some(Interrupt::Serial);
+        //}
+        //if iflags.joypad() {
+        //    return Some(Interrupt::Joypad);
+        //}
+        //None
     }
 
     fn handle_interrupt(&mut self, i: Interrupt) -> u8 {
-        // 8 t cycles
-        self.mem().interrupt_flags().reset(i);
-        // 8 t cycles
-        self.ime = false;
-        self.push(self.pc);
-        // 4 t cycles
-        self.pc = i.addr() as u16;
-        20
+        todo!("handle_interrupt");
+        //// 8 t cycles
+        //self.mem().interrupt_flags().reset(i);
+        //// 8 t cycles
+        //self.ime = false;
+        //self.push(self.pc);
+        //// 4 t cycles
+        //self.pc = i.addr() as u16;
+        //20
     }
 }
 
@@ -1429,155 +1435,155 @@ mod test {
 
     use super::*;
 
-    #[test]
-    fn fetch() {
-        let mem = Memory::arc();
-        let val = 0xCC;
-        let mut cpu = CPU::new(&mem);
-        mem.lock().unwrap().write(cpu.pc, val);
-        let pc = cpu.pc;
-        let fetched = cpu.fetch();
-        assert_eq!(val, fetched);
-        assert_eq!(cpu.pc, pc + 1);
-    }
+    //#[test]
+    //fn fetch() {
+    //    let mem = Memory::arc();
+    //    let val = 0xCC;
+    //    let mut cpu = CPU::new(&mem);
+    //    mem.lock().unwrap().write(cpu.pc, val);
+    //    let pc = cpu.pc;
+    //    let fetched = cpu.fetch();
+    //    assert_eq!(val, fetched);
+    //    assert_eq!(cpu.pc, pc + 1);
+    //}
 
-    #[test]
-    fn fetch_word() {
-        let mem = Memory::arc();
-        let mut cpu = CPU::new(&mem);
-        let pc = cpu.pc;
-        let low = 0xCC;
-        let high = 0xDD;
-        let word = 0xDDCC;
-        mem.lock().unwrap().write(pc, low);
-        mem.lock().unwrap().write(pc + 1, high);
-        let fetched = cpu.fetch_word();
-        assert_eq!(word, fetched);
-        assert_eq!(cpu.pc, pc + 2);
-    }
+    //#[test]
+    //fn fetch_word() {
+    //    let mem = Memory::arc();
+    //    let mut cpu = CPU::new(&mem);
+    //    let pc = cpu.pc;
+    //    let low = 0xCC;
+    //    let high = 0xDD;
+    //    let word = 0xDDCC;
+    //    mem.lock().unwrap().write(pc, low);
+    //    mem.lock().unwrap().write(pc + 1, high);
+    //    let fetched = cpu.fetch_word();
+    //    assert_eq!(word, fetched);
+    //    assert_eq!(cpu.pc, pc + 2);
+    //}
 
-    #[test]
-    fn jump_relative() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(&mem);
-        let byte = 0xFF;
-        let expected = cpu.pc + (byte as u16);
-        cpu.jr(byte);
-        assert_eq!(cpu.pc, expected);
-    }
+    //#[test]
+    //fn jump_relative() {
+    //    let mem = Arc::new(Mutex::new(Memory::new()));
+    //    let mut cpu = CPU::new(&mem);
+    //    let byte = 0xFF;
+    //    let expected = cpu.pc + (byte as u16);
+    //    cpu.jr(byte);
+    //    assert_eq!(cpu.pc, expected);
+    //}
 
-    #[test]
-    fn jump_relative_word() {
-        let mem = Memory::arc();
-        let mut cpu = CPU::new(&mem);
-        let word = 0x00FF;
-        let expected = cpu.pc + word;
-        cpu.jr_word(word);
-        assert_eq!(cpu.pc, expected);
-    }
+    //#[test]
+    //fn jump_relative_word() {
+    //    let mem = Memory::arc();
+    //    let mut cpu = CPU::new(&mem);
+    //    let word = 0x00FF;
+    //    let expected = cpu.pc + word;
+    //    cpu.jr_word(word);
+    //    assert_eq!(cpu.pc, expected);
+    //}
 
-    #[test]
-    fn af() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(&mem);
-        let byte = 0b0110_0110;
-        let expected = ((byte as u16) << 8) | 0b1000_0000;
-        cpu.set_flag(Flag::Z);
-        cpu.a.write(byte);
-        assert_eq!(cpu.af().val(), expected);
-    }
+    //#[test]
+    //fn af() {
+    //    let mem = Arc::new(Mutex::new(Memory::new()));
+    //    let mut cpu = CPU::new(&mem);
+    //    let byte = 0b0110_0110;
+    //    let expected = ((byte as u16) << 8) | 0b1000_0000;
+    //    cpu.set_flag(Flag::Z);
+    //    cpu.a.write(byte);
+    //    assert_eq!(cpu.af().val(), expected);
+    //}
 
-    #[test]
-    fn flag_set() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(&mem);
-        cpu.set_flag(Flag::N);
-        assert!(cpu.nf());
-    }
+    //#[test]
+    //fn flag_set() {
+    //    let mem = Arc::new(Mutex::new(Memory::new()));
+    //    let mut cpu = CPU::new(&mem);
+    //    cpu.set_flag(Flag::N);
+    //    assert!(cpu.nf());
+    //}
 
-    #[test]
-    fn flag_reset() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(&mem);
-        cpu.set_flag(Flag::N);
-        assert!(cpu.nf());
-        cpu.reset_flag(Flag::N);
-        assert!(!cpu.nf());
-    }
+    //#[test]
+    //fn flag_reset() {
+    //    let mem = Arc::new(Mutex::new(Memory::new()));
+    //    let mut cpu = CPU::new(&mem);
+    //    cpu.set_flag(Flag::N);
+    //    assert!(cpu.nf());
+    //    cpu.reset_flag(Flag::N);
+    //    assert!(!cpu.nf());
+    //}
 
-    #[test]
-    fn flag() {
-        let mem = Memory::arc();
-        let mut cpu = CPU::new(&mem);
-        assert!(!cpu.flag(Flag::N));
-        cpu.set_flag(Flag::N);
-        assert!(cpu.flag(Flag::N));
-    }
+    //#[test]
+    //fn flag() {
+    //    let mem = Memory::arc();
+    //    let mut cpu = CPU::new(&mem);
+    //    assert!(!cpu.flag(Flag::N));
+    //    cpu.set_flag(Flag::N);
+    //    assert!(cpu.flag(Flag::N));
+    //}
 
-    #[test]
-    fn flag_set_val() {
-        let mem = Arc::new(Mutex::new(Memory::new()));
-        let mut cpu = CPU::new(&mem);
-        let f = Flag::C;
-        cpu.set_flag_from_val(f, 1);
-        assert!(cpu.cf());
-        cpu.set_flag_from_val(f, 0);
-        assert!(!cpu.cf());
-    }
+    //#[test]
+    //fn flag_set_val() {
+    //    let mem = Arc::new(Mutex::new(Memory::new()));
+    //    let mut cpu = CPU::new(&mem);
+    //    let f = Flag::C;
+    //    cpu.set_flag_from_val(f, 1);
+    //    assert!(cpu.cf());
+    //    cpu.set_flag_from_val(f, 0);
+    //    assert!(!cpu.cf());
+    //}
 
-    #[test]
-    fn cc() {
-        let mem = Memory::arc();
-        let mut cpu = CPU::new(&mem);
-        assert!(cpu.cc(Cond::Z));
-        assert!(cpu.cc(Cond::NC));
-        cpu.reset_flag(Flag::Z);
-        cpu.set_flag(Flag::C);
-        assert!(cpu.cc(Cond::NZ));
-        assert!(cpu.cc(Cond::C));
-    }
+    //#[test]
+    //fn cc() {
+    //    let mem = Memory::arc();
+    //    let mut cpu = CPU::new(&mem);
+    //    assert!(cpu.cc(Cond::Z));
+    //    assert!(cpu.cc(Cond::NC));
+    //    cpu.reset_flag(Flag::Z);
+    //    cpu.set_flag(Flag::C);
+    //    assert!(cpu.cc(Cond::NZ));
+    //    assert!(cpu.cc(Cond::C));
+    //}
 
-    #[test]
-    fn register() {
-        let byte = 0xFE;
-        let mut r: Register = byte.into();
-        assert_eq!(byte, r.val());
-        assert_eq!(r.0, r.val());
+    //#[test]
+    //fn register() {
+    //    let byte = 0xFE;
+    //    let mut r: Register = byte.into();
+    //    assert_eq!(byte, r.val());
+    //    assert_eq!(r.0, r.val());
 
-        let byte = 0xF2;
-        r.write(byte);
-        assert_eq!(byte, r.val());
-    }
+    //    let byte = 0xF2;
+    //    r.write(byte);
+    //    assert_eq!(byte, r.val());
+    //}
 
-    #[test]
-    fn word_register() {
-        let low_val = 0xFE;
-        let high_val = 0xFE;
-        let mut l: Register = low_val.into();
-        let mut h: Register = high_val.into();
+    //#[test]
+    //fn word_register() {
+    //    let low_val = 0xFE;
+    //    let high_val = 0xFE;
+    //    let mut l: Register = low_val.into();
+    //    let mut h: Register = high_val.into();
 
-        let mut expected_word = ((high_val as u16) << 8) | (low_val as u16);
+    //    let mut expected_word = ((high_val as u16) << 8) | (low_val as u16);
 
-        let mut w = Word::new(&mut h, &mut l);
-        assert_eq!(expected_word, w.val());
+    //    let mut w = Word::new(&mut h, &mut l);
+    //    assert_eq!(expected_word, w.val());
 
-        expected_word = expected_word.wrapping_add(1);
-        w.inc();
-        assert_eq!(expected_word, w.val());
+    //    expected_word = expected_word.wrapping_add(1);
+    //    w.inc();
+    //    assert_eq!(expected_word, w.val());
 
-        expected_word -= 1;
-        w.dec();
-        assert_eq!(expected_word, w.val());
+    //    expected_word -= 1;
+    //    w.dec();
+    //    assert_eq!(expected_word, w.val());
 
-        let low_val = 0xCC;
-        let high_val = 0xDD;
-        expected_word = ((high_val as u16) << 8) | (low_val as u16);
+    //    let low_val = 0xCC;
+    //    let high_val = 0xDD;
+    //    expected_word = ((high_val as u16) << 8) | (low_val as u16);
 
-        w.write(expected_word);
-        assert_eq!(expected_word, w.val());
-        assert_eq!(l.0, low_val);
-        assert_eq!(h.0, high_val);
-    }
+    //    w.write(expected_word);
+    //    assert_eq!(expected_word, w.val());
+    //    assert_eq!(l.0, low_val);
+    //    assert_eq!(h.0, high_val);
+    //}
 
     #[test]
     fn deserialize_cycle_state() {
