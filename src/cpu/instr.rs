@@ -31,16 +31,21 @@ pub enum Error {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Instruction {
     opcode: u8,
     op: Operation,
-    length: u8,
+    len: u8,
     cycles: (u8, u8),
 
     // for purposes for proper string representation when executing
     n8: Option<u8>,
-    n16: Option<u16>,
+    n16_lo: Option<u8>,
+    n16_hi: Option<u8>,
+
+    steps: Vec<Step>,
+    branched: bool,
+    done: bool,
 }
 
 impl Instruction {
@@ -49,11 +54,30 @@ impl Instruction {
     }
 
     pub fn cycles(&self) -> u8 {
-        self.cycles.0
+        match self.branched {
+            false => self.cycles.0,
+            true => self.cycles.1,
+        }
     }
 
     pub fn branch_cycles(&self) -> u8 {
         self.cycles.1
+    }
+
+    pub fn steps(&self) -> &[Step] {
+        &self.steps
+    }
+
+    pub fn steps_mut(&mut self) -> &mut [Step] {
+        &mut self.steps
+    }
+
+    pub fn done(&self) -> bool {
+        self.done
+    }
+
+    pub fn complete(&mut self) {
+        self.done = true
     }
 
     pub fn op(&self) -> Operation {
@@ -64,8 +88,30 @@ impl Instruction {
         self.n8 = Some(n)
     }
 
-    pub fn set_n16(&mut self, n: u16) {
-        self.n16 = Some(n)
+    pub fn set_n16_lo(&mut self, n: u8) {
+        self.n16_lo = Some(n)
+    }
+
+    pub fn set_n16_hi(&mut self, n: u8) {
+        self.n16_hi = Some(n)
+    }
+}
+
+impl Instruction {
+    pub fn decode(opcode: u8) -> Instruction {
+        match opcode {
+            // NOP
+            0x00 => Instruction::nop(),
+            _ => todo!("unimplemented: {}", opcode),
+        }
+    }
+
+    pub fn nop() -> Instruction {
+        Instruction {
+            opcode: 0,
+            steps: vec![Step::with_ops(vec![])],
+            ..Default::default()
+        }
     }
 }
 
@@ -87,10 +133,14 @@ impl Default for Instruction {
         Instruction {
             opcode: 0,
             op: Operation::NOP,
-            length: 1,
+            len: 1,
             cycles: (4, 0),
             n8: None,
-            n16: None,
+            n16_lo: None,
+            n16_hi: None,
+            steps: vec![],
+            branched: false,
+            done: false,
         }
     }
 }
@@ -438,6 +488,65 @@ impl Display for Operation {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Step {
+    ops: Vec<Op>,
+    done: bool,
+}
+
+impl Step {
+    pub fn with_ops(ops: Vec<Op>) -> Step {
+        Step { ops, done: false }
+    }
+
+    pub fn ops(&self) -> &[Op] {
+        &self.ops
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+
+    pub fn set_done(&mut self) {
+        self.done = true
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Op {
+    Fetch(Fetch),
+    Assert(Assert),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Fetch {
+    N,
+    NnLow,
+    NnHigh,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Assert {
+    Address(Register),
+    Data(Register),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Register {
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    H,
+    L,
+    SP,
+    PC,
+    N,
+    NN,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ADD {
     A(R8),
@@ -594,7 +703,11 @@ pub fn decode(opcode: u8) -> Result<Instruction, Error> {
 
 fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
     if opcode == 0x00 {
-        return Ok(Instruction::default());
+        return Ok(Instruction {
+            opcode,
+            steps: vec![Step::with_ops(vec![])],
+            ..Default::default()
+        });
     }
     if opcode == 0b00010000 {
         let mut i = Instruction::new();
@@ -614,14 +727,14 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             let r16: R16 = ((opcode & 0b0011_0000) >> 4).try_into()?;
             i.op = LD::R16(r16, R16::N16).into();
             i.cycles = (12, 0);
-            i.length = 3;
+            i.len = 3;
             return Ok(i);
         }
         //// ld [r16mem], a
         0b0010 => {
             let r16 = Mem::r16mem((opcode & 0b0011_0000) >> 4)?;
             i.op = LD::MemR8(r16, R8::A).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (8, 0);
             return Ok(i);
         }
@@ -629,7 +742,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         0b1010 => {
             let rm = Mem::r16mem((opcode & 0b0011_0000) >> 4)?;
             i.op = LD::R8Mem(R8::A, rm).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (8, 0);
             return Ok(i);
         }
@@ -638,7 +751,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
             let dest = (opcode & 0b0011_0000) >> 4;
             if dest == 0b00 {
                 i.op = LD::MemR16(Mem::N16, R16::SP).into();
-                i.length = 3;
+                i.len = 3;
                 i.cycles = (20, 0);
                 return Ok(i);
             }
@@ -648,7 +761,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         0b0011 => {
             let r: R16 = ((opcode & 0b0011_0000) >> 4).try_into()?;
             i.op = INC::R16(r).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (8, 0);
             return Ok(i);
         }
@@ -657,7 +770,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         0b1011 => {
             let r: R16 = ((opcode & 0b0011_0000) >> 4).try_into()?;
             i.op = DEC::R16(r).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (8, 0);
             return Ok(i);
         }
@@ -666,7 +779,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         0b1001 => {
             let r: R16 = ((opcode & 0b0011_0000) >> 4).try_into()?;
             i.op = ADD::HL(r).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (8, 0);
             return Ok(i);
         }
@@ -679,7 +792,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         0b100 => {
             let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
             i.op = INC::R8(r).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
@@ -688,7 +801,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         0b101 => {
             let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
             i.op = DEC::R8(r).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
@@ -697,7 +810,7 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         0b110 => {
             let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
             i.op = LD::R8(r, R8::N8).into();
-            i.length = 2;
+            i.len = 2;
             match r {
                 R8::HL => i.cycles = (12, 0),
                 _ => i.cycles = (4, 0),
@@ -711,13 +824,13 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
                 // jr cond, n8
                 let c: Cond = bits_43.try_into()?;
                 i.op = JR::Cond(c).into();
-                i.length = 2;
+                i.len = 2;
                 i.cycles = (8, 12);
                 return Ok(i);
             } else {
                 // jr n8
                 i.op = JR::N8.into();
-                i.length = 2;
+                i.len = 2;
                 i.cycles = (12, 0);
                 return Ok(i);
             }
@@ -729,56 +842,56 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         // rlca
         0b0000_0111 => {
             i.op = Operation::RLCA;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
         // rrca
         0b0000_1111 => {
             i.op = Operation::RRCA;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
         // rla
         0b0001_0111 => {
             i.op = Operation::RLA;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
         // rra
         0b0001_1111 => {
             i.op = Operation::RRA;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
         // daa
         0b0010_0111 => {
             i.op = Operation::DAA;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
         // cpl
         0b0010_1111 => {
             i.op = Operation::CPL;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
         // scf
         0b0011_0111 => {
             i.op = Operation::SCF;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
         // ccf
         0b0011_1111 => {
             i.op = Operation::CCF;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
@@ -800,7 +913,7 @@ fn decode_block_1(opcode: u8) -> Result<Instruction, Error> {
         let dest: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
         let src: R8 = (opcode & 0b0000_0111).try_into()?;
         let mut i = Instruction::new();
-        i.length = 1;
+        i.len = 1;
         if dest == R8::HL {
             i.op = LD::MemR8(Mem::HL, src).into();
             i.cycles = (8, 0);
@@ -817,7 +930,7 @@ fn decode_block_1(opcode: u8) -> Result<Instruction, Error> {
 fn decode_block_2(opcode: u8) -> Result<Instruction, Error> {
     let mut i = Instruction::new();
     let r: R8 = (opcode & 0b0000_0111).try_into()?;
-    i.length = 1;
+    i.len = 1;
     if r == R8::HL {
         i.cycles = (8, 0);
     } else {
@@ -884,13 +997,13 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
     // Prefix
     if opcode == 0b1100_1011 {
         i.op = Operation::PREFIX;
-        i.length = 1;
+        i.len = 1;
         i.cycles = (4, 0);
         return Ok(i);
     }
 
     if (opcode & 0b111) == 0b110 {
-        i.length = 2;
+        i.len = 2;
         i.cycles = (8, 0);
 
         match (opcode & 0b0011_1000) >> 3 {
@@ -942,7 +1055,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ldh [c], a
         0b1110_0010 => {
             i.op = LDH::Mem(Mem::C).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (8, 0);
             return Ok(i);
         }
@@ -950,7 +1063,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ldh [imm8], a
         0b1110_0000 => {
             i.op = LDH::Mem(Mem::N8).into();
-            i.length = 2;
+            i.len = 2;
             i.cycles = (12, 0);
             return Ok(i);
         }
@@ -958,7 +1071,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ld [imm16], a
         0b1110_1010 => {
             i.op = LD::MemR8(Mem::N16, R8::A).into();
-            i.length = 3;
+            i.len = 3;
             i.cycles = (16, 0);
             return Ok(i);
         }
@@ -966,7 +1079,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ldh a, [c]
         0b1111_0010 => {
             i.op = LDH::A(Mem::C).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (8, 0);
             return Ok(i);
         }
@@ -974,7 +1087,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ldh a, [imm8]
         0b1111_0000 => {
             i.op = LDH::A(Mem::N8).into();
-            i.length = 2;
+            i.len = 2;
             i.cycles = (12, 0);
             return Ok(i);
         }
@@ -982,7 +1095,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ld a, [imm16]
         0b1111_1010 => {
             i.op = LD::R8Mem(R8::A, Mem::N16).into();
-            i.length = 3;
+            i.len = 3;
             i.cycles = (16, 0);
             return Ok(i);
         }
@@ -990,7 +1103,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // add sp, imm8
         0b1110_1000 => {
             i.op = ADD::SP.into();
-            i.length = 2;
+            i.len = 2;
             i.cycles = (16, 0);
             return Ok(i);
         }
@@ -998,7 +1111,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ld hl, sp + e8
         0b1111_1000 => {
             i.op = LD::HLSPN.into();
-            i.length = 2;
+            i.len = 2;
             i.cycles = (12, 0);
             return Ok(i);
         }
@@ -1006,7 +1119,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ld sp, hl
         0b1111_1001 => {
             i.op = LD::R16(R16::SP, R16::HL).into();
-            i.length = 1;
+            i.len = 1;
             i.cycles = (8, 0);
             return Ok(i);
         }
@@ -1014,7 +1127,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // di
         0b1111_0011 => {
             i.op = Operation::DI;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
@@ -1022,7 +1135,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ei
         0b1111_1011 => {
             i.op = Operation::EI;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (4, 0);
             return Ok(i);
         }
@@ -1030,14 +1143,14 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // ret
         0b1100_1001 => {
             i.op = Operation::RET;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (16, 0);
             return Ok(i);
         }
         // reti
         0b1101_1001 => {
             i.op = Operation::RETI;
-            i.length = 1;
+            i.len = 1;
             i.cycles = (16, 0);
             return Ok(i);
         }
@@ -1045,14 +1158,14 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // jp n16
         0b1100_0011 => {
             i.op = Operation::JP(R16::N16);
-            i.length = 3;
+            i.len = 3;
             i.cycles = (16, 0);
             return Ok(i);
         }
         // jp hl
         0b1110_1001 => {
             i.op = Operation::JP(R16::HL);
-            i.length = 3;
+            i.len = 3;
             i.cycles = (16, 0);
             return Ok(i);
         }
@@ -1060,7 +1173,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         // call imm16
         0b1100_1101 => {
             i.op = Operation::CALL;
-            i.length = 3;
+            i.len = 3;
             i.cycles = (24, 0);
             return Ok(i);
         }
@@ -1073,7 +1186,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         0b000 => {
             let c: Cond = ((opcode & 0b0001_1000) >> 3).try_into()?;
             i.op = Operation::RETC(c);
-            i.length = 1;
+            i.len = 1;
             i.cycles = (8, 20);
             return Ok(i);
         }
@@ -1081,7 +1194,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         0b010 => {
             let c: Cond = ((opcode & 0b0001_1000) >> 3).try_into()?;
             i.op = Operation::JPC(c, R16::N16);
-            i.length = 3;
+            i.len = 3;
             i.cycles = (12, 16);
             return Ok(i);
         }
@@ -1089,7 +1202,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         0b100 => {
             let c: Cond = ((opcode & 0b0001_1000) >> 3).try_into()?;
             i.op = Operation::CALLC(c);
-            i.length = 3;
+            i.len = 3;
             i.cycles = (12, 24);
             return Ok(i);
         }
@@ -1097,7 +1210,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         0b111 => {
             let t: T3 = ((opcode & 0b0011_1000) >> 3).into();
             i.op = Operation::RST(t);
-            i.length = 1;
+            i.len = 1;
             i.cycles = (16, 0);
             return Ok(i);
         }
@@ -1110,7 +1223,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         0b0001 => {
             let r = R16::r16stk((opcode & 0b0011_0000) >> 4)?;
             i.op = Operation::POP(r);
-            i.length = 1;
+            i.len = 1;
             i.cycles = (12, 0);
             return Ok(i);
         }
@@ -1118,7 +1231,7 @@ fn decode_block_3(opcode: u8) -> Result<Instruction, Error> {
         0b0101 => {
             let r = R16::r16stk((opcode & 0b0011_0000) >> 4)?;
             i.op = Operation::PUSH(r);
-            i.length = 1;
+            i.len = 1;
             i.cycles = (16, 0);
             return Ok(i);
         }
@@ -1137,7 +1250,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
         0b000 => {
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::RLC(r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1149,7 +1262,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
         0b001 => {
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::RRC(r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1161,7 +1274,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
         0b010 => {
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::RL(r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1173,7 +1286,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
         0b011 => {
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::RR(r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1185,7 +1298,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
         0b100 => {
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::SLA(r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1197,7 +1310,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
         0b101 => {
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::SRA(r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1209,7 +1322,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
         0b110 => {
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::SWAP(r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1221,7 +1334,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
         0b111 => {
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::SRL(r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1239,7 +1352,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             let b3: B3 = ((opcode & 0b11_1000) >> 3).into();
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::BIT(b3, r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1252,7 +1365,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             let b: B3 = ((opcode & 0b11_1000) >> 3).into();
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::RES(b, r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {
@@ -1265,7 +1378,7 @@ pub fn decode_prefix(opcode: u8) -> Result<Instruction, Error> {
             let b: B3 = ((opcode & 0b11_1000) >> 3).into();
             let r: R8 = (opcode & 0b111).try_into()?;
             i.op = Operation::SET(b, r);
-            i.length = 2;
+            i.len = 2;
             if r == R8::HL {
                 i.cycles = (12, 0);
             } else {

@@ -20,7 +20,7 @@ use crate::{
     memory::Memory,
 };
 
-mod bus;
+mod io;
 mod cpu;
 mod memory;
 mod ppu;
@@ -188,7 +188,7 @@ fn main() {
     let mut mem = Memory::new();
     mem.init();
     mem.load_rom(&rom);
-    let mut cpu = CPU::new(mem.clone());
+    let mut cpu = CPU::new(&mem);
     //let ppu = Arc::new(Mutex::new(PPU::new(&mem)));
 
     //let mut wm = WindowManager::new(&vs, &ppu);
@@ -236,7 +236,7 @@ fn main() {
         let cycles_to_adv = now.elapsed().as_nanos() / T_CYCLE_PRD_NS as u128;
         let mut cycles = 0;
         while cycles < cycles_to_adv {
-            cycles += cpu.tick().unwrap() as u128;
+            cpu.tick().unwrap();
         }
     }
 }

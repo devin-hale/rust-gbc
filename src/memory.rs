@@ -1,6 +1,7 @@
-use std::sync::{Arc, Mutex, MutexGuard};
-
-use crate::{cpu::Interrupt, utils::bit};
+use std::{
+    fmt::Display,
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 const ROM_BANK_0_START: usize = 0x0000;
 const ROM_BANK_0_END: usize = 0x03FFF;
@@ -39,15 +40,7 @@ const UNUSED_END: usize = 0xFEFF;
 const UNUSED_LEN: usize = UNUSED_END - UNUSED_START + 1;
 
 const IO_START: usize = 0xFF00;
-pub const DIV: usize = 0xFF04;
-const TIMER_COUNTER: usize = 0xFF05;
-const TIMER_MODULO: usize = 0xFF05;
-const TIMER_CONTROL: usize = 0xFF07;
-const IF_REGISTER: usize = 0xFF0F;
-const LCDC: usize = 0xFF40;
-const OBP0: usize = 0xFF48;
-const OBP1: usize = 0xFF49;
-const BGP: usize = 0xFF47;
+
 const IO_END: usize = 0xFF7F;
 const IO_LEN: usize = IO_END - IO_START + 1;
 
@@ -63,8 +56,15 @@ pub struct Memory {
     rom_1: Arc<Mutex<[u8; ROM_BANK_1_LEN]>>,
     vram: Arc<Mutex<[u8; ERAM_LEN]>>,
     eram: Arc<Mutex<[u8; ERAM_LEN]>>,
+    wram_0: Arc<Mutex<[u8; WRAM_0_LEN]>>,
+    wram_1: Arc<Mutex<[u8; WRAM_1_LEN]>>,
+    echo_ram: Arc<Mutex<[u8; ECHO_RAM_LEN]>>,
+    oam: Arc<Mutex<[u8; OAM_LEN]>>,
     io: Arc<Mutex<[u8; IO_LEN]>>,
     hram: Arc<Mutex<[u8; HRAM_LEN]>>,
+
+    addr: Arc<Mutex<u16>>,
+    data: Arc<Mutex<u8>>,
 }
 
 impl Memory {
@@ -74,8 +74,28 @@ impl Memory {
             rom_1: Arc::new(Mutex::new([0u8; ROM_BANK_1_LEN])),
             vram: Arc::new(Mutex::new([0u8; VRAM_LEN])),
             eram: Arc::new(Mutex::new([0u8; ERAM_LEN])),
+            wram_0: Arc::new(Mutex::new([0u8; WRAM_0_LEN])),
+            wram_1: Arc::new(Mutex::new([0u8; WRAM_1_LEN])),
+            echo_ram: Arc::new(Mutex::new([0u8; ECHO_RAM_LEN])),
+            oam: Arc::new(Mutex::new([0u8; OAM_LEN])),
             io: Arc::new(Mutex::new([0u8; IO_LEN])),
             hram: Arc::new(Mutex::new([0u8; HRAM_LEN])),
+            addr: Arc::new(Mutex::new(0)),
+            data: Arc::new(Mutex::new(0)),
+        }
+    }
+
+    pub fn data_bus(&self, a: Accessor) -> DataBus {
+        DataBus {
+            accessor: a,
+            mem: self.clone(),
+        }
+    }
+
+    pub fn address_bus(&self, a: Accessor) -> AddressBus {
+        AddressBus {
+            accessor: a,
+            mem: self.clone(),
         }
     }
 
@@ -89,8 +109,15 @@ impl Memory {
         let addr = addr as usize;
         match addr {
             ROM_BANK_0_START..=ROM_BANK_0_END => self.rom_0()[addr],
+            ROM_BANK_1_START..=ROM_BANK_1_END => self.rom_1()[addr - ROM_BANK_1_START],
+            VRAM_START..=VRAM_END => self.vram()[addr - VRAM_START],
+            ERAM_START..=ERAM_END => self.eram()[addr - ERAM_START],
+            WRAM_0_START..=WRAM_0_END => self.wram_0()[addr - WRAM_0_START],
+            WRAM_1_START..=WRAM_1_END => self.wram_1()[addr - WRAM_1_START],
+            ECHO_RAM_START..=ECHO_RAM_END => self.echo_ram()[addr - ECHO_RAM_START],
+            OAM_START..=OAM_END => self.oam()[addr - OAM_START],
             IO_START..=IO_END => self.io()[addr - IO_START],
-            HRAM_START..=HRAM_END => self.io()[addr - HRAM_START],
+            HRAM_START..=HRAM_END => self.hram()[addr - HRAM_START],
             _ => {
                 todo!("missing rom bank for addr: {}", addr);
             }
@@ -101,12 +128,49 @@ impl Memory {
         let addr = addr as usize;
         match addr {
             ROM_BANK_0_START..=ROM_BANK_0_END => self.rom_0()[addr] = val,
+            ROM_BANK_1_START..=ROM_BANK_1_END => self.rom_0()[addr - ROM_BANK_1_START] = val,
+            VRAM_START..=VRAM_END => self.vram()[addr - VRAM_START] = val,
+            ERAM_START..=ERAM_END => self.eram()[addr - ERAM_START] = val,
+            WRAM_0_START..=WRAM_0_END => self.wram_0()[addr - WRAM_0_START] = val,
+            WRAM_1_START..=WRAM_1_END => self.wram_1()[addr - WRAM_1_START] = val,
+            ECHO_RAM_START..=ECHO_RAM_END => self.echo_ram()[addr - ECHO_RAM_START] = val,
+            OAM_START..=OAM_END => self.oam()[addr - OAM_START] = val,
             IO_START..=IO_END => self.io()[addr - IO_START] = val,
-            HRAM_START..=HRAM_END => self.io()[addr - HRAM_START] = val,
+            HRAM_START..=HRAM_END => self.hram()[addr - HRAM_START] = val,
             _ => {
                 todo!("missing rom bank for addr: {:x}", addr);
             }
         }
+    }
+
+    fn addr(&self) -> MutexGuard<'_, u16> {
+        self.addr
+            .lock()
+            .expect("error acquiring lock for address line")
+    }
+
+    fn data(&self) -> MutexGuard<'_, u8> {
+        self.data
+            .lock()
+            .expect("error acquiring lock for data line")
+    }
+
+    pub fn read_current(&self) -> u8 {
+        self.read(*self.addr())
+    }
+
+    pub fn write_current(&mut self) {
+        let addr = *self.addr();
+        let data = *self.data();
+        self.write(addr, data);
+    }
+
+    pub fn assert_addr(&mut self, addr: u16) {
+        *self.addr() = addr
+    }
+
+    pub fn assert_data(&mut self, data: u8) {
+        *self.data() = data
     }
 
     pub fn read_word(&self, addr: u16) -> u16 {
@@ -116,15 +180,15 @@ impl Memory {
     }
 
     pub fn write_word(&mut self, addr: u16, data: u16) {
-        let mut low = (data & 0x00FF) as u8;
-        let mut high = ((data & 0xFF00) >> 8) as u8;
+        let low = (data & 0x00FF) as u8;
+        let high = ((data & 0xFF00) >> 8) as u8;
 
-        if addr as usize == DIV {
-            low = 0;
-        }
-        if (addr as usize) + 1 == DIV {
-            high = 0;
-        }
+        //if addr as usize == DIV {
+        //    low = 0;
+        //}
+        //if (addr as usize) + 1 == DIV {
+        //    high = 0;
+        //}
 
         self.write(addr, low);
         self.write(addr + 1, high);
@@ -138,10 +202,10 @@ impl Memory {
     }
 
     pub fn dec(&mut self, addr: u16) -> u8 {
-        if addr as usize == DIV {
-            self.write(addr, 0);
-            return 0;
-        }
+        //if addr as usize == DIV {
+        //    self.write(addr, 0);
+        //    return 0;
+        //}
         let mut val = self.read(addr);
         val -= 1;
         self.write(addr, val);
@@ -159,16 +223,66 @@ impl Memory {
 
         for (i, v) in self.rom_1().iter().enumerate() {
             if *v != 0 {
-                mem_state.push([i as u16, *v as u16]);
+                mem_state.push([(i + ROM_BANK_1_START) as u16, *v as u16]);
             }
         }
 
         for (i, v) in self.eram().iter().enumerate() {
             if *v != 0 {
-                mem_state.push([i as u16, *v as u16]);
+                mem_state.push([(i + ERAM_START) as u16, *v as u16]);
+            }
+        }
+
+        for (i, v) in self.wram_0().iter().enumerate() {
+            if *v != 0 {
+                mem_state.push([(i + WRAM_0_START) as u16, *v as u16]);
+            }
+        }
+
+        for (i, v) in self.wram_1().iter().enumerate() {
+            if *v != 0 {
+                mem_state.push([(i + WRAM_1_START) as u16, *v as u16]);
+            }
+        }
+
+        for (i, v) in self.echo_ram().iter().enumerate() {
+            if *v != 0 {
+                mem_state.push([(i + ECHO_RAM_START) as u16, *v as u16]);
+            }
+        }
+
+        for (i, v) in self.oam().iter().enumerate() {
+            if *v != 0 {
+                mem_state.push([(i + OAM_START) as u16, *v as u16]);
+            }
+        }
+
+        for (i, v) in self.vram().iter().enumerate() {
+            if *v != 0 {
+                mem_state.push([(i + VRAM_START) as u16, *v as u16]);
+            }
+        }
+
+        for (i, v) in self.io().iter().enumerate() {
+            if *v != 0 {
+                mem_state.push([(i + IO_START) as u16, *v as u16]);
+            }
+        }
+
+        for (i, v) in self.hram().iter().enumerate() {
+            if *v != 0 {
+                mem_state.push([(i + HRAM_START) as u16, *v as u16]);
             }
         }
         mem_state
+    }
+
+    pub fn load_state(&mut self, s: &Vec<[u16; 2]>) {
+        for state in s.iter() {
+            let addr = state[0];
+            let val = state[1] as u8;
+            self.write(addr, val);
+        }
     }
 
     fn rom_0(&self) -> MutexGuard<'_, [u8; ROM_BANK_0_LEN]> {
@@ -201,8 +315,32 @@ impl Memory {
             .expect("error acquiring mutex lock for io bank")
     }
 
-    pub fn hram(&self) -> MutexGuard<'_, [u8; IO_LEN]> {
-        self.io
+    pub fn hram(&self) -> MutexGuard<'_, [u8; HRAM_LEN]> {
+        self.hram
+            .lock()
+            .expect("error acquiring mutex lock for hram bank")
+    }
+
+    pub fn wram_0(&self) -> MutexGuard<'_, [u8; WRAM_0_LEN]> {
+        self.wram_0
+            .lock()
+            .expect("error acquiring mutex lock for hram bank")
+    }
+
+    pub fn wram_1(&self) -> MutexGuard<'_, [u8; WRAM_1_LEN]> {
+        self.wram_1
+            .lock()
+            .expect("error acquiring mutex lock for hram bank")
+    }
+
+    pub fn echo_ram(&self) -> MutexGuard<'_, [u8; ECHO_RAM_LEN]> {
+        self.echo_ram
+            .lock()
+            .expect("error acquiring mutex lock for hram bank")
+    }
+
+    pub fn oam(&self) -> MutexGuard<'_, [u8; OAM_LEN]> {
+        self.oam
             .lock()
             .expect("error acquiring mutex lock for hram bank")
     }
@@ -266,11 +404,53 @@ impl Memory {
     //}
 }
 
-pub struct IO<'a>(&'a mut [u8]);
+pub struct DataBus {
+    accessor: Accessor,
+    mem: Memory,
+}
 
-impl<'a> IO<'a> {
-    pub fn len(&self) -> usize {
-        self.0.len()
+impl DataBus {
+    pub fn read(&self) -> u8 {
+        self.mem.read_current()
+    }
+
+    pub fn assert(&mut self, data: u8) {
+        self.mem.assert_data(data);
+    }
+
+    pub fn write(&mut self) {
+        self.mem.write_current();
+    }
+}
+
+pub struct AddressBus {
+    accessor: Accessor,
+    mem: Memory,
+}
+
+impl AddressBus {
+    pub fn assert(&mut self, addr: u16) {
+        self.mem.assert_addr(addr);
+    }
+
+    pub fn current(&self) -> u16 {
+        *self.mem.addr()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Accessor {
+    CPU,
+    PPU,
+}
+
+impl Display for Accessor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::CPU => "cpu",
+            Self::PPU => "ppu",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -316,162 +496,6 @@ const DMG_INIT: [(usize, u8); 40] = [
     (0xFF4B, 0x00),
     (0xFFFF, 0x00),
 ];
-
-pub struct InterruptRegister<'i>(&'i mut u8);
-
-impl<'i> InterruptRegister<'i> {
-    pub fn vblank(&self) -> bool {
-        bit::is_set(*self.0, 0)
-    }
-
-    #[inline(always)]
-    pub fn vblank_set(&mut self) {
-        bit::set(self.0, 0)
-    }
-
-    #[inline(always)]
-    pub fn vblank_reset(&mut self) {
-        bit::reset(self.0, 0)
-    }
-
-    #[inline(always)]
-    pub fn lcd(&self) -> bool {
-        bit::is_set(*self.0, 1)
-    }
-
-    #[inline(always)]
-    pub fn lcd_set(&mut self) {
-        bit::set(self.0, 1)
-    }
-
-    #[inline(always)]
-    pub fn lcd_reset(&mut self) {
-        bit::reset(self.0, 1)
-    }
-
-    #[inline(always)]
-    pub fn timer(&self) -> bool {
-        bit::is_set(*self.0, 2)
-    }
-
-    #[inline(always)]
-    pub fn timer_set(&mut self) {
-        bit::set(self.0, 2)
-    }
-
-    #[inline(always)]
-    pub fn timer_reset(&mut self) {
-        bit::reset(self.0, 2)
-    }
-
-    #[inline(always)]
-    pub fn serial(&self) -> bool {
-        bit::is_set(*self.0, 3)
-    }
-
-    #[inline(always)]
-    pub fn serial_set(&mut self) {
-        bit::set(self.0, 3)
-    }
-
-    #[inline(always)]
-    pub fn serial_reset(&mut self) {
-        bit::reset(self.0, 3)
-    }
-
-    #[inline(always)]
-    pub fn joypad(&self) -> bool {
-        bit::is_set(*self.0, 4)
-    }
-
-    #[inline(always)]
-    pub fn joypad_set(&mut self) {
-        bit::set(self.0, 4)
-    }
-
-    #[inline(always)]
-    pub fn joypad_reset(&mut self) {
-        bit::reset(self.0, 4)
-    }
-
-    pub fn reset(&mut self, i: Interrupt) {
-        match i {
-            Interrupt::VBlank => self.vblank_reset(),
-            Interrupt::STAT => self.lcd_reset(),
-            Interrupt::Serial => self.serial_reset(),
-            Interrupt::Timer => self.timer_reset(),
-            Interrupt::Joypad => self.joypad_reset(),
-        }
-    }
-
-    pub fn set(&mut self, i: Interrupt) {
-        match i {
-            Interrupt::VBlank => self.vblank_set(),
-            Interrupt::STAT => self.lcd_set(),
-            Interrupt::Serial => self.serial_set(),
-            Interrupt::Timer => self.timer_set(),
-            Interrupt::Joypad => self.joypad_set(),
-        }
-    }
-}
-
-pub struct TimerControl<'i>(&'i mut u8);
-
-impl<'t> TimerControl<'t> {
-    const ENABLE_BIT: u8 = 2;
-    const CLOCK_SELECT_MASK: u8 = 0b11;
-
-    pub fn enable(&mut self) {
-        bit::set(self.0, Self::ENABLE_BIT);
-    }
-
-    pub fn disable(&mut self) {
-        bit::reset(self.0, Self::ENABLE_BIT);
-    }
-
-    pub fn is_enabled(&mut self) -> bool {
-        bit::is_set(*self.0, Self::ENABLE_BIT)
-    }
-
-    pub fn clk(&mut self) -> ClockSelect {
-        (*self.0 & Self::CLOCK_SELECT_MASK).into()
-    }
-
-    pub fn clk_select(&mut self, cs: ClockSelect) {
-        *self.0 = (*self.0 & !Self::CLOCK_SELECT_MASK) | cs as u8;
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClockSelect {
-    Hyper,
-    Slow,
-    Medium,
-    Fast,
-}
-
-impl From<u8> for ClockSelect {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => ClockSelect::Hyper,
-            1 => ClockSelect::Slow,
-            2 => ClockSelect::Medium,
-            3 => ClockSelect::Fast,
-            _ => panic!("invalid ClockSelect value"),
-        }
-    }
-}
-
-impl ClockSelect {
-    pub fn cycles(&self) -> u64 {
-        match self {
-            ClockSelect::Hyper => 256_000_000,
-            ClockSelect::Slow => 4_000_000,
-            ClockSelect::Medium => 16_000_000,
-            ClockSelect::Fast => 64_000_000,
-        }
-    }
-}
 
 #[cfg(test)]
 mod test {

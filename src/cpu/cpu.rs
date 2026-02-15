@@ -19,8 +19,8 @@ use thiserror::Error;
 
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3};
 use crate::{
-    cpu::instr::{Error as IError, JR, LDH, decode, decode_prefix},
-    memory::{self, Memory},
+    cpu::instr::{Error as IError, Fetch, JR, LDH, Op, decode, decode_prefix},
+    memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
 };
 
@@ -31,12 +31,6 @@ pub enum Error {
 
     #[error("CPU: unknown error")]
     Unknown,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum InterruptControl {
-    Enable,
-    Disable,
 }
 
 pub struct CPU {
@@ -51,26 +45,23 @@ pub struct CPU {
     sp: u16,
     pc: u16,
 
-    mem: Memory,
+    addr_bus: AddressBus,
+    data_bus: DataBus,
 
-    stop: bool,
-    halt: bool,
+    ir: Instruction,
+    //stop: bool,
+    //halt: bool,
 
-    i: Option<Instruction>,
-
-    prefix: bool,
-    ic_0: Option<InterruptControl>,
-    ic_1: Option<InterruptControl>,
+    //prefix: bool,
+    //ic_0: Option<InterruptControl>,
+    //ic_1: Option<InterruptControl>,
     ime: bool,
-
-    n16: Option<u16>,
-    n8: Option<u8>,
-
-    div_cycles: u64,
-    timer_cycles: u64,
+    ie: bool,
+    //div_cycles: u64,
+    //timer_cycles: u64,
 }
 
-#[derive(PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 struct State {
     pc: u16,
     sp: u16,
@@ -82,11 +73,12 @@ struct State {
     e: u8,
     h: u8,
     l: u8,
-    ie: bool,
-    ime: bool,
+    ie: Option<u8>,
+    ime: u8,
     ram: Vec<[u16; 2]>,
 }
 
+#[derive(Debug)]
 struct CycleState {
     addr: Option<u16>,
     data: Option<u8>,
@@ -95,7 +87,7 @@ struct CycleState {
     m: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Test {
     name: String,
     initial: State,
@@ -339,7 +331,7 @@ impl<'r> Word<'r> {
 }
 
 impl CPU {
-    pub fn new(mem: Memory) -> CPU {
+    pub fn new(mem: &Memory) -> CPU {
         CPU {
             a: Register::with_val(0x00),
             f: Register::with_val(0b1000_0000),
@@ -351,18 +343,61 @@ impl CPU {
             l: Register::with_val(0x4D),
             sp: 0xFFFE,
             pc: 0x0100,
-            mem,
-            prefix: false,
-            stop: false,
-            halt: false,
-            i: None,
-            ic_0: None,
-            ic_1: None,
+            addr_bus: mem.address_bus(memory::Accessor::CPU),
+            data_bus: mem.data_bus(memory::Accessor::CPU),
+            ir: Instruction::nop(),
+            //prefix: false,
+            //stop: false,
+            //halt: false,
+            //ic_0: None,
+            //ic_1: None,
+            ie: false,
             ime: false,
-            n8: None,
-            n16: None,
-            div_cycles: 0,
-            timer_cycles: 0,
+            //n8: None,
+            //n16: None,
+            //div_cycles: 0,
+            //timer_cycles: 0,
+        }
+    }
+
+    fn state(&self) -> State {
+        State {
+            pc: self.pc,
+            sp: self.sp,
+            a: self.a.0,
+            f: self.f.0,
+            b: self.b.0,
+            c: self.c.0,
+            d: self.d.0,
+            e: self.e.0,
+            h: self.h.0,
+            l: self.l.0,
+            ie: Some(self.ie as u8),
+            ime: self.ime as u8,
+            ram: vec![],
+        }
+    }
+
+    fn load_state(&mut self, s: &State) {
+        self.pc = s.pc;
+        self.sp = s.sp;
+        self.a.0 = s.a;
+        self.f.0 = s.f;
+        self.b.0 = s.b;
+        self.c.0 = s.c;
+        self.d.0 = s.d;
+        self.e.0 = s.e;
+        self.h.0 = s.h;
+        self.l.0 = s.l;
+        if let Some(ie) = s.ie {
+            match ie {
+                0 => self.ie = false,
+                _ => self.ie = true,
+            }
+        }
+        match s.ime {
+            0 => self.ime = false,
+            _ => self.ime = true,
         }
     }
 
@@ -447,17 +482,16 @@ impl CPU {
     }
 
     fn fetch(&mut self) -> u8 {
-        let pc = self.pc;
-        let next = pc.wrapping_add(1);
-        self.pc = next;
-        self.mem.read(pc)
+        self.addr_bus.assert(self.pc);
+        self.pc = self.pc.wrapping_add(1);
+        self.data_bus.read()
     }
 
-    fn imm(&mut self) -> u8 {
-        let n = self.fetch();
-        self.n8 = Some(n);
-        n
-    }
+    //fn imm(&mut self) -> u8 {
+    //    let n = self.fetch();
+    //    self.n8 = Some(n);
+    //    n
+    //}
 
     fn fetch_word(&mut self) -> u16 {
         let low = self.fetch() as u16;
@@ -465,171 +499,66 @@ impl CPU {
         (high << 8) | low
     }
 
-    fn imm_word(&mut self) -> u16 {
-        let n = self.fetch_word();
-        self.n16 = Some(n);
-        n
-    }
+    //fn imm_word(&mut self) -> u16 {
+    //    let n = self.fetch_word();
+    //    self.n16 = Some(n);
+    //    n
+    //}
 
-    fn decode(&mut self, opcode: u8) -> Result<Instruction, Error> {
-        if self.prefix {
-            self.prefix = false;
-            Ok(decode_prefix(opcode)?)
-        } else {
-            Ok(decode(opcode)?)
+    //fn decode(&mut self, opcode: u8) -> Result<Instruction, Error> {
+    //    if self.prefix {
+    //        self.prefix = false;
+    //        Ok(decode_prefix(opcode)?)
+    //    } else {
+    //        Ok(decode(opcode)?)
+    //    }
+    //}
+
+    pub fn execute(&mut self) -> Result<(), Error> {
+        if self.ir.done() {
+            return Ok(());
         }
-    }
-
-    fn execute(&mut self, i: Instruction) -> u8 {
-        let mut i = i;
-        let mut use_branch_cycles = false;
-        match i.op() {
-            Operation::NOP => {}
-            Operation::DI => self.di(),
-            Operation::EI => self.ei(),
-            Operation::STOP => self.stop(),
-            Operation::HALT => self.halt = true,
-            Operation::LD(ld) => {
-                self.ld(ld).unwrap();
-            }
-            Operation::SLA(r) => self.sla(r),
-            Operation::SRA(r) => self.sra(r),
-            Operation::SWAP(r) => self.swap(r),
-            Operation::SRL(r) => self.srl(r),
-            Operation::BIT(b, r) => self.bit(b, r),
-            Operation::SET(b, r) => self.set(b, r),
-            Operation::RES(b, r) => self.res(b, r),
-            Operation::PREFIX => self.prefix = true,
-            Operation::INC(inc) => self.inc(inc),
-            Operation::DEC(dec) => self.dec(dec),
-            Operation::ADD(add) => self.add(add),
-            Operation::ADC(r) => self.adc(r),
-            Operation::RLCA => self.rlc(R8::A),
-            Operation::RLC(r) => self.rlc(r),
-            Operation::RRCA => self.rrc(R8::A),
-            Operation::RRC(r) => self.rrc(r),
-            Operation::RLA => self.rl(R8::A),
-            Operation::RL(r) => self.rl(r),
-            Operation::RRA => self.rr(R8::A),
-            Operation::RR(r) => self.rr(r),
-            Operation::DAA => self.daa(),
-            Operation::CPL => self.cpl(),
-            Operation::SCF => self.scf(),
-            Operation::CCF => self.ccf(),
-            Operation::JP(r) => self.jp(r),
-            Operation::JPC(c, r) => {
-                use_branch_cycles = self.jp_cond(c, r);
-            }
-            Operation::CALL => self.call(),
-            Operation::CALLC(c) => {
-                use_branch_cycles = self.call_cond(c);
-            }
-            Operation::RST(t) => self.rst(t),
-            Operation::POP(r) => self.pop(r),
-            Operation::PUSH(r) => {
-                let v = self.src_r16(r);
-                self.push(v);
-            }
-            Operation::LDH(ldh) => match ldh {
-                LDH::A(r) => self.ldh_a(r),
-                LDH::Mem(r) => self.ldh_m(r),
-            },
-            Operation::JR(jr) => {
-                let v = self.imm();
-                match jr {
-                    JR::Cond(c) => {
-                        use_branch_cycles = self.jr_cond(c, v);
-                    }
-                    JR::N8 => self.jr(v),
+        let mut ex = vec![];
+        for s in self.ir.steps_mut() {
+            if !s.is_done() {
+                for op in s.ops().iter() {
+                    ex.push(*op);
                 }
+                s.set_done();
+                break;
             }
-            Operation::RET => self.ret(),
-            Operation::RETI => self.reti(),
-            Operation::RETC(c) => {
-                use_branch_cycles = self.ret_cond(c);
-            }
-            Operation::SUB(r) => self.sub(r),
-            Operation::SBC(r) => self.sbc(r),
-            Operation::AND(r) => self.and(r),
-            Operation::XOR(r) => self.xor(r),
-            Operation::OR(r) => self.or(r),
-            Operation::CP(r) => self.cp(r),
         }
-        if let Some(n) = self.n8 {
-            i.set_n8(n);
-            self.n8 = None;
-        }
-        if let Some(n) = self.n16 {
-            i.set_n16(n);
-            self.n16 = None;
-        }
-        if self.i.is_some() {
-            self.i = None;
-        }
-        println!("{}", i);
-        if use_branch_cycles {
-            i.branch_cycles()
+        if ex.len() == 0 {
+            self.ir.complete();
         } else {
-            i.cycles()
-        }
-    }
-
-    pub fn handle_div(&mut self, cycles: u8) {
-        if !self.stop {
-            self.div_cycles = self.div_cycles.wrapping_add(cycles as u64);
-
-            if self.div_cycles >= CYCLES_PER_DIV_TICK {
-                //self.mem().inc_div();
-                self.div_cycles = self.div_cycles.saturating_sub(CYCLES_PER_DIV_TICK);
+            for op in ex {
+                self.execute_op(op)?;
             }
         }
+
+        Ok(())
     }
 
-    pub fn handle_timer(&mut self, cycles: u8) {
-        todo!("handle_timer");
-        //if !self.stop {
-        //    let cycles_per_tick = self.mem().timer_control().clk().cycles();
-        //    self.timer_cycles = self.timer_cycles.wrapping_add(cycles as u64);
-        //    if self.timer_cycles >= cycles_per_tick {
-        //        self.mem().inc_timer();
-        //        self.timer_cycles = self.timer_cycles.saturating_sub(cycles_per_tick);
-        //    }
-        //}
+    fn execute_op(&mut self, op: Op) -> Result<(), Error> {
+        match op {
+            Op::Fetch(f) => self.handle_fetch(f),
+            _ => todo!("unimplemented op: {:?}", op),
+        }
     }
 
-    pub fn tick(&mut self) -> Result<u8, Error> {
-        if self.stop {
-            // check for interrupt
-            return Ok(4);
+    fn handle_fetch(&mut self, f: Fetch) -> Result<(), Error> {
+        match f {
+            _ => todo!("unimplemented fetch op: {:?}", f),
         }
-        if self.halt {
-            return match self.query_interrupt() {
-                Some(int) => Ok(self.handle_interrupt(int)),
-                None => Ok(0),
-            };
-        }
-        if let Some(int) = self.query_interrupt() {
-            return Ok(self.handle_interrupt(int));
-        }
-        self.handle_ic_0();
-        let mut cycles = 0;
-        if self.i.is_some() {
-            cycles = self.execute(self.i.unwrap());
-        }
-        self.handle_ic_1();
-        if self.i.is_none() {
+    }
+
+    pub fn tick(&mut self) -> Result<(), Error> {
+        self.execute()?;
+        if self.ir.done() {
             let opcode = self.fetch();
-            let i = self.decode(opcode)?;
-            self.i = Some(i);
+            self.ir = Instruction::decode(opcode);
         }
-        self.handle_div(cycles);
-
-        Ok(cycles)
-    }
-
-    fn stop(&mut self) {
-        self.stop = true;
-        //self.mem().reset_div();
+        Ok(())
     }
 
     fn jp(&mut self, r: R16) {
@@ -687,19 +616,22 @@ impl CPU {
     }
 
     pub fn pop(&mut self, r: R16) {
-        let sp = self.sp;
-        self.sp = self.sp.wrapping_add(2);
-        let mut val = self.mem.read_word(sp);
-        if r == R16::AF {
-            val &= 0xFFF0;
-        }
-        self.ld_r16(r, val)
+        todo!("rework pop");
+        //let sp = self.sp;
+        //self.addr_bus.assert(addr);
+        //self.sp = self.sp.wrapping_add(2);
+        //let mut val = self.mem.read_word(sp);
+        //if r == R16::AF {
+        //    val &= 0xFFF0;
+        //}
+        //self.ld_r16(r, val)
     }
 
     pub fn push(&mut self, v: u16) {
-        self.sp -= 2;
-        let sp = self.sp;
-        self.mem.write_word(sp, v);
+        todo!("rework push")
+        //self.sp -= 2;
+        //let sp = self.sp;
+        //self.mem.write_word(sp, v);
     }
 
     fn push_r16(&mut self, r: R16) {
@@ -717,62 +649,34 @@ impl CPU {
     }
 
     fn ld(&mut self, op: LD) -> Result<(), ()> {
-        match op {
-            LD::R8(a, b) => {
-                let v = self.src_r8(b);
-                self.ld_r8(a, v);
-            }
-            LD::R16(a, b) => {
-                let v = self.src_r16(b);
-                self.ld_r16(a, v);
-            }
-            LD::MemR8(m, r) => {
-                let addr = self.mem_addr(m);
-                let v = self.src_r8(r);
-                self.mem.write(addr, v);
-            }
-            LD::MemR16(m, r) => {
-                let addr = self.mem_addr(m);
-                let v = self.src_r16(r);
-                self.mem.write_word(addr, v);
-            }
-            LD::R8Mem(r, m) => {
-                let addr = self.mem_addr(m);
-                let v = self.mem.read(addr);
-                self.ld_r8(r, v);
-            }
-            LD::HLSPN => self.ld_hl_sp_n(),
-        }
+        todo!("rework or trash");
+        //match op {
+        //    LD::R8(a, b) => {
+        //        let v = self.src_r8(b);
+        //        self.ld_r8(a, v);
+        //    }
+        //    LD::R16(a, b) => {
+        //        let v = self.src_r16(b);
+        //        self.ld_r16(a, v);
+        //    }
+        //    LD::MemR8(m, r) => {
+        //        let addr = self.mem_addr(m);
+        //        let v = self.src_r8(r);
+        //        self.mem.write(addr, v);
+        //    }
+        //    LD::MemR16(m, r) => {
+        //        let addr = self.mem_addr(m);
+        //        let v = self.src_r16(r);
+        //        self.mem.write_word(addr, v);
+        //    }
+        //    LD::R8Mem(r, m) => {
+        //        let addr = self.mem_addr(m);
+        //        let v = self.mem.read(addr);
+        //        self.ld_r8(r, v);
+        //    }
+        //    LD::HLSPN => self.ld_hl_sp_n(),
+        //}
         Ok(())
-    }
-
-    pub fn mem_addr(&mut self, m: Mem) -> u16 {
-        match m {
-            Mem::HL => self.hl().val(),
-            Mem::BC => self.bc().val(),
-            Mem::DE => self.de().val(),
-            Mem::SP => self.de().val(),
-            Mem::SPN8 => {
-                let n = self.imm();
-                self.sp + (n as u16)
-            }
-            Mem::N16 => self.imm_word(),
-            Mem::N8 => {
-                let n = self.imm();
-                return (n as u16) + 0xFF00;
-            }
-            Mem::C => (self.c.val() as u16) + 0xFF00,
-            Mem::HLI => {
-                let addr = self.hl().val();
-                self.hl().inc();
-                addr
-            }
-            Mem::HLD => {
-                let addr = self.hl().val();
-                self.hl().dec();
-                addr
-            }
-        }
     }
 
     pub fn ld_r16(&mut self, r: R16, v: u16) {
@@ -789,53 +693,39 @@ impl CPU {
     }
 
     pub fn ld_r8(&mut self, r: R8, v: u8) {
-        match r {
-            R8::A => self.a.write(v),
-            R8::B => self.b.write(v),
-            R8::C => self.c.write(v),
-            R8::D => self.d.write(v),
-            R8::E => self.e.write(v),
-            R8::H => self.h.write(v),
-            R8::L => self.l.write(v),
-            R8::HL => {
-                let addr = self.hl().val();
-                self.mem.write(addr, v);
-            }
-            R8::N8 => panic!("attempt to load to n8 value"),
-        }
-    }
-
-    fn ld_hl_sp_n(&mut self) {
-        let sp = self.sp;
-        let e = self.imm() as u16;
-        let result = sp + e;
-        self.hl().write(result);
-
-        self.reset_flag(Flag::Z);
-        self.reset_flag(Flag::N);
-        if bit::check_overflow_word(sp, e, 3) {
-            self.set_flag(Flag::H);
-        }
-        if bit::check_overflow_word(sp, e, 7) {
-            self.set_flag(Flag::C);
-        }
+        todo!("rework or trash");
+        //match r {
+        //    R8::A => self.a.write(v),
+        //    R8::B => self.b.write(v),
+        //    R8::C => self.c.write(v),
+        //    R8::D => self.d.write(v),
+        //    R8::E => self.e.write(v),
+        //    R8::H => self.h.write(v),
+        //    R8::L => self.l.write(v),
+        //    R8::HL => {
+        //        let addr = self.hl().val();
+        //        self.mem.write(addr, v);
+        //    }
+        //    R8::N8 => panic!("attempt to load to n8 value"),
+        //}
     }
 
     pub fn src_r8(&mut self, r: R8) -> u8 {
-        match r {
-            R8::N8 => self.imm(),
-            R8::A => self.a.val(),
-            R8::B => self.b.val(),
-            R8::C => self.c.val(),
-            R8::D => self.d.val(),
-            R8::E => self.e.val(),
-            R8::H => self.h.val(),
-            R8::L => self.l.val(),
-            R8::HL => {
-                let addr = self.hl().val();
-                return self.mem.read(addr);
-            }
-        }
+        todo!("rework or trash");
+        //match r {
+        //    R8::N8 => self.imm(),
+        //    R8::A => self.a.val(),
+        //    R8::B => self.b.val(),
+        //    R8::C => self.c.val(),
+        //    R8::D => self.d.val(),
+        //    R8::E => self.e.val(),
+        //    R8::H => self.h.val(),
+        //    R8::L => self.l.val(),
+        //    R8::HL => {
+        //        let addr = self.hl().val();
+        //        return self.mem.read(addr);
+        //    }
+        //}
     }
 
     pub fn src_r16(&mut self, r: R16) -> u16 {
@@ -858,22 +748,23 @@ impl CPU {
     }
 
     fn inc_r8(&mut self, r: R8) {
-        let val = self.src_r8(r);
-        let result = match r {
-            R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).inc(),
-            R8::HL => {
-                let addr = self.hl().val();
-                self.mem.inc(addr)
-            }
-            _ => panic!("attempt to increment {}", r),
-        };
-        if result == 0 {
-            self.reset_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        if bit::check_overflow(val, 1, 3) {
-            self.set_flag(Flag::H);
-        }
+        todo!("rework or trash")
+        //let val = self.src_r8(r);
+        //let result = match r {
+        //    R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).inc(),
+        //    R8::HL => {
+        //        let addr = self.hl().val();
+        //        self.mem.inc(addr)
+        //    }
+        //    _ => panic!("attempt to increment {}", r),
+        //};
+        //if result == 0 {
+        //    self.reset_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //if bit::check_overflow(val, 1, 3) {
+        //    self.set_flag(Flag::H);
+        //}
     }
 
     fn inc_r16(&mut self, r: R16) {
@@ -905,23 +796,24 @@ impl CPU {
     }
 
     fn dec_r8(&mut self, r: R8) {
-        let val = self.src_r8(r);
-        let result = match r {
-            R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).dec(),
-            R8::HL => {
-                let addr = self.hl().val();
-                self.mem.dec(addr)
-            }
-            _ => panic!("attempt to increment {}", r),
-        };
+        todo!("rework or trash")
+        //let val = self.src_r8(r);
+        //let result = match r {
+        //    R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).dec(),
+        //    R8::HL => {
+        //        let addr = self.hl().val();
+        //        self.mem.dec(addr)
+        //    }
+        //    _ => panic!("attempt to increment {}", r),
+        //};
 
-        if result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        if bit::check_borrow(val, 1, 4) {
-            self.set_flag(Flag::H);
-        }
-        self.set_flag(Flag::N);
+        //if result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //if bit::check_borrow(val, 1, 4) {
+        //    self.set_flag(Flag::H);
+        //}
+        //self.set_flag(Flag::N);
     }
 
     fn dec_r16(&mut self, r: R16) {
@@ -1016,33 +908,6 @@ impl CPU {
         self.reset_flag(Flag::H);
     }
 
-    fn ei(&mut self) {
-        self.ic_0 = Some(InterruptControl::Enable);
-        self.ic_1 = None;
-    }
-
-    fn di(&mut self) {
-        self.ic_0 = Some(InterruptControl::Disable);
-        self.ic_1 = None;
-    }
-
-    fn handle_ic_0(&mut self) {
-        if let Some(ic) = self.ic_0 {
-            self.ic_1 = Some(ic);
-            self.ic_0 = None;
-        }
-    }
-
-    fn handle_ic_1(&mut self) {
-        if let Some(ic) = self.ic_1 {
-            match ic {
-                InterruptControl::Enable => self.ime = true,
-                InterruptControl::Disable => self.ime = false,
-            }
-            self.ic_1 = None;
-        }
-    }
-
     fn daa(&mut self) {
         let a = self.a.val();
         if self.flag(Flag::N) {
@@ -1101,11 +966,12 @@ impl CPU {
     // ADD
 
     fn add(&mut self, add: ADD) {
-        match add {
-            ADD::A(r) => self.add_r8(r),
-            ADD::HL(r) => self.add_r16(r),
-            ADD::SP => self.add_sp(),
-        }
+        todo!("rework")
+        //match add {
+        //    ADD::A(r) => self.add_r8(r),
+        //    ADD::HL(r) => self.add_r16(r),
+        //    ADD::SP => self.add_sp(),
+        //}
     }
 
     fn add_r8(&mut self, r: R8) {
@@ -1141,21 +1007,21 @@ impl CPU {
         }
     }
 
-    fn add_sp(&mut self) {
-        let val = self.imm() as u16;
-        let sp = self.sp;
-        let result = sp.wrapping_add(val);
-        self.sp = result;
+    //fn add_sp(&mut self) {
+    //    let val = self.imm() as u16;
+    //    let sp = self.sp;
+    //    let result = sp.wrapping_add(val);
+    //    self.sp = result;
 
-        self.reset_flag(Flag::Z);
-        self.reset_flag(Flag::N);
-        if bit::check_overflow_word(sp, val, 3) {
-            self.set_flag(Flag::H);
-        }
-        if bit::check_overflow_word(sp, val, 7) {
-            self.set_flag(Flag::H);
-        }
-    }
+    //    self.reset_flag(Flag::Z);
+    //    self.reset_flag(Flag::N);
+    //    if bit::check_overflow_word(sp, val, 3) {
+    //        self.set_flag(Flag::H);
+    //    }
+    //    if bit::check_overflow_word(sp, val, 7) {
+    //        self.set_flag(Flag::H);
+    //    }
+    //}
 
     // ADC
     fn adc(&mut self, b: R8) {
@@ -1274,30 +1140,33 @@ impl CPU {
     }
 
     fn ldh_a(&mut self, m: instr::Mem) {
-        let addr = match m {
-            instr::Mem::C => (self.c.val() as u16) + 0xFF00,
-            instr::Mem::N8 => (self.imm() as u16) + 0xFF00,
-            _ => panic!("invalid ldh destination operation"),
-        };
-        let val = self.mem.read(addr);
-        self.a.write(val);
+        todo!("rework")
+        //let addr = match m {
+        //    instr::Mem::C => (self.c.val() as u16) + 0xFF00,
+        //    instr::Mem::N8 => (self.imm() as u16) + 0xFF00,
+        //    _ => panic!("invalid ldh destination operation"),
+        //};
+        //let val = self.mem.read(addr);
+        //self.a.write(val);
     }
 
     fn ldh_m(&mut self, m: instr::Mem) {
-        let a = self.a.val();
-        let addr = match m {
-            instr::Mem::C => (self.c.val() as u16) | 0xFF00,
-            instr::Mem::N8 => (self.imm() as u16) | 0xFF00,
-            _ => panic!("invalid ldh destination operation"),
-        };
-        self.mem.write(addr, a);
+        todo!("rework")
+        //let a = self.a.val();
+        //let addr = match m {
+        //    instr::Mem::C => (self.c.val() as u16) | 0xFF00,
+        //    instr::Mem::N8 => (self.imm() as u16) | 0xFF00,
+        //    _ => panic!("invalid ldh destination operation"),
+        //};
+        //self.mem.write(addr, a);
     }
 
     fn ret(&mut self) {
-        let addr = self.sp;
-        let val = self.mem.read_word(addr);
-        self.pc = val;
-        self.sp = self.sp.wrapping_add(2);
+        todo!("rework")
+        //let addr = self.sp;
+        //let val = self.mem.read_word(addr);
+        //self.pc = val;
+        //self.sp = self.sp.wrapping_add(2);
     }
 
     fn ret_cond(&mut self, c: Cond) -> bool {
@@ -1308,10 +1177,10 @@ impl CPU {
         false
     }
 
-    fn reti(&mut self) {
-        self.ret();
-        self.ime = true;
-    }
+    //fn reti(&mut self) {
+    //    self.ret();
+    //    self.ime = true;
+    //}
 
     fn sla(&mut self, r: R8) {
         let v = self.src_r8(r);
@@ -1431,21 +1300,84 @@ impl CPU {
 
 #[cfg(test)]
 mod test {
-    use crate::memory::DIV;
+    use std::fs;
+
+    use crate::io::DIV;
 
     use super::*;
 
-    //#[test]
-    //fn fetch() {
-    //    let mem = Memory::arc();
-    //    let val = 0xCC;
-    //    let mut cpu = CPU::new(&mem);
-    //    mem.lock().unwrap().write(cpu.pc, val);
-    //    let pc = cpu.pc;
-    //    let fetched = cpu.fetch();
-    //    assert_eq!(val, fetched);
-    //    assert_eq!(cpu.pc, pc + 1);
-    //}
+    fn setup() -> (CPU, Memory) {
+        let mem = Memory::new();
+        let cpu = CPU::new(&mem);
+        (cpu, mem)
+    }
+
+    fn load_test(file_name: &'static str) -> Vec<Test> {
+        let path = String::from("./test_files/v1/") + file_name;
+        let raw = fs::read_to_string(path).unwrap();
+        serde_json::from_str(raw.as_str()).unwrap()
+    }
+
+    fn cmp_mem_state(mem: &mut Memory, test_state: &Vec<[u16; 2]>) {
+        for state in test_state.iter() {
+            assert_eq!(mem.read(state[0]), state[1] as u8);
+        }
+    }
+
+    fn cmp_cpu_state(cpu: &mut CPU, s: &State) {
+        assert_eq!(s.a, cpu.a.0);
+        assert_eq!(s.f, cpu.f.0);
+        assert_eq!(s.b, cpu.b.0);
+        assert_eq!(s.c, cpu.c.0);
+        assert_eq!(s.d, cpu.d.0);
+        assert_eq!(s.e, cpu.e.0);
+        assert_eq!(s.h, cpu.h.0);
+        assert_eq!(s.l, cpu.l.0);
+        assert_eq!(s.pc, cpu.pc);
+        assert_eq!(s.sp, cpu.sp);
+        //assert_eq!(s.ime, cpu.ime as u8);
+        //if let Some(ie) = s.ie {
+        //    assert_eq!(ie, cpu.ie as u8);
+        //} else {
+        //    assert!(!cpu.ie);
+        //}
+    }
+
+    #[test]
+    fn fetch() {
+        let (mut cpu, mut mem) = setup();
+        let val = 0xCC;
+        mem.write(cpu.pc, val);
+        let pc = cpu.pc;
+        let fetched = cpu.fetch();
+        assert_eq!(val, fetched);
+        assert_eq!(cpu.pc, pc + 1);
+    }
+
+    #[test]
+    fn sm83_00() {
+        let tests = load_test("00.json");
+        for test in tests {
+            println!("sm83 {}", test.name);
+            println!("test: {:?}", test);
+            let (mut cpu, mut mem) = setup();
+            cpu.load_state(&test.initial);
+            mem.load_state(&test.initial.ram);
+
+            for mc in test.cycles {
+                cpu.tick().unwrap();
+                if let Some(d) = mc.data {
+                    assert_eq!(d, cpu.data_bus.read());
+                }
+                if let Some(addr) = mc.addr {
+                    assert_eq!(addr, cpu.addr_bus.current());
+                }
+            }
+
+            cmp_mem_state(&mut mem, &test.r#final.ram);
+            cmp_cpu_state(&mut cpu, &test.r#final);
+        }
+    }
 
     //#[test]
     //fn fetch_word() {
