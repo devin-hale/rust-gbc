@@ -1343,20 +1343,8 @@ mod test {
         //}
     }
 
-    #[test]
-    fn fetch() {
-        let (mut cpu, mut mem) = setup();
-        let val = 0xCC;
-        mem.write(cpu.pc, val);
-        let pc = cpu.pc;
-        let fetched = cpu.fetch();
-        assert_eq!(val, fetched);
-        assert_eq!(cpu.pc, pc + 1);
-    }
-
-    #[test]
-    fn sm83_00() {
-        let tests = load_test("00.json");
+    fn run_json_test(test: &'static str) {
+        let tests = load_test(test);
         for test in tests {
             println!("sm83 {}", test.name);
             println!("test: {:?}", test);
@@ -1377,6 +1365,23 @@ mod test {
             cmp_mem_state(&mut mem, &test.r#final.ram);
             cmp_cpu_state(&mut cpu, &test.r#final);
         }
+    }
+
+    #[test]
+    fn fetch() {
+        let (mut cpu, mut mem) = setup();
+        let val = 0xCC;
+        mem.write(cpu.pc, val);
+        let pc = cpu.pc;
+        let fetched = cpu.fetch();
+        assert_eq!(val, fetched);
+        assert_eq!(cpu.pc, pc + 1);
+    }
+
+    #[test]
+    fn sm83_00() {
+        // NOP
+        run_json_test("00.json");
     }
 
     //#[test]
