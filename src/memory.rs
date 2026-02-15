@@ -60,8 +60,10 @@ pub struct Memory {
     wram_1: Arc<Mutex<[u8; WRAM_1_LEN]>>,
     echo_ram: Arc<Mutex<[u8; ECHO_RAM_LEN]>>,
     oam: Arc<Mutex<[u8; OAM_LEN]>>,
+    unused: Arc<Mutex<[u8; UNUSED_LEN]>>,
     io: Arc<Mutex<[u8; IO_LEN]>>,
     hram: Arc<Mutex<[u8; HRAM_LEN]>>,
+    ie: Arc<Mutex<u8>>,
 
     addr: Arc<Mutex<u16>>,
     data: Arc<Mutex<u8>>,
@@ -78,8 +80,10 @@ impl Memory {
             wram_1: Arc::new(Mutex::new([0u8; WRAM_1_LEN])),
             echo_ram: Arc::new(Mutex::new([0u8; ECHO_RAM_LEN])),
             oam: Arc::new(Mutex::new([0u8; OAM_LEN])),
+            unused: Arc::new(Mutex::new([0u8; UNUSED_LEN])),
             io: Arc::new(Mutex::new([0u8; IO_LEN])),
             hram: Arc::new(Mutex::new([0u8; HRAM_LEN])),
+            ie: Arc::new(Mutex::new(0)),
             addr: Arc::new(Mutex::new(0)),
             data: Arc::new(Mutex::new(0)),
         }
@@ -116,8 +120,10 @@ impl Memory {
             WRAM_1_START..=WRAM_1_END => self.wram_1()[addr - WRAM_1_START],
             ECHO_RAM_START..=ECHO_RAM_END => self.echo_ram()[addr - ECHO_RAM_START],
             OAM_START..=OAM_END => self.oam()[addr - OAM_START],
+            UNUSED_START..=UNUSED_END => self.oam()[addr - UNUSED_START],
             IO_START..=IO_END => self.io()[addr - IO_START],
             HRAM_START..=HRAM_END => self.hram()[addr - HRAM_START],
+            IE_REGISTER => *self.ie(),
             _ => {
                 todo!("missing rom bank for addr: {}", addr);
             }
@@ -128,15 +134,17 @@ impl Memory {
         let addr = addr as usize;
         match addr {
             ROM_BANK_0_START..=ROM_BANK_0_END => self.rom_0()[addr] = val,
-            ROM_BANK_1_START..=ROM_BANK_1_END => self.rom_0()[addr - ROM_BANK_1_START] = val,
+            ROM_BANK_1_START..=ROM_BANK_1_END => self.rom_1()[addr - ROM_BANK_1_START] = val,
             VRAM_START..=VRAM_END => self.vram()[addr - VRAM_START] = val,
             ERAM_START..=ERAM_END => self.eram()[addr - ERAM_START] = val,
             WRAM_0_START..=WRAM_0_END => self.wram_0()[addr - WRAM_0_START] = val,
             WRAM_1_START..=WRAM_1_END => self.wram_1()[addr - WRAM_1_START] = val,
             ECHO_RAM_START..=ECHO_RAM_END => self.echo_ram()[addr - ECHO_RAM_START] = val,
             OAM_START..=OAM_END => self.oam()[addr - OAM_START] = val,
+            UNUSED_START..=UNUSED_END => self.oam()[addr - UNUSED_START] = val,
             IO_START..=IO_END => self.io()[addr - IO_START] = val,
             HRAM_START..=HRAM_END => self.hram()[addr - HRAM_START] = val,
+            IE_REGISTER => *self.ie() = val,
             _ => {
                 todo!("missing rom bank for addr: {:x}", addr);
             }
@@ -274,6 +282,10 @@ impl Memory {
                 mem_state.push([(i + HRAM_START) as u16, *v as u16]);
             }
         }
+
+        if *self.ie() != 0 {
+            mem_state.push([IE_REGISTER as u16, *self.ie() as u16]);
+        }
         mem_state
     }
 
@@ -341,6 +353,18 @@ impl Memory {
 
     pub fn oam(&self) -> MutexGuard<'_, [u8; OAM_LEN]> {
         self.oam
+            .lock()
+            .expect("error acquiring mutex lock for hram bank")
+    }
+
+    pub fn unused(&self) -> MutexGuard<'_, [u8; UNUSED_LEN]> {
+        self.unused
+            .lock()
+            .expect("error acquiring mutex lock for hram bank")
+    }
+
+    pub fn ie(&self) -> MutexGuard<'_, u8> {
+        self.ie
             .lock()
             .expect("error acquiring mutex lock for hram bank")
     }

@@ -19,7 +19,7 @@ use thiserror::Error;
 
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3};
 use crate::{
-    cpu::instr::{Error as IError, Fetch, JR, LDH, Op, decode, decode_prefix},
+    cpu::instr::{Error as IError, Fetch, JR, LDH, Load, Op, decode, decode_prefix},
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
 };
@@ -481,6 +481,9 @@ impl CPU {
         Word::new(&mut self.d, &mut self.e)
     }
 
+    // marks first
+    fn prime_test(&mut self) {}
+
     fn fetch(&mut self) -> u8 {
         self.addr_bus.assert(self.pc);
         self.pc = self.pc.wrapping_add(1);
@@ -541,14 +544,88 @@ impl CPU {
 
     fn execute_op(&mut self, op: Op) -> Result<(), Error> {
         match op {
-            Op::Fetch(f) => self.handle_fetch(f),
-            _ => todo!("unimplemented op: {:?}", op),
+            Op::Fetch(f) => self.handle_fetch(f)?,
+            Op::Load(l) => self.handle_load(l)?,
+            Op::Assert(r) => self.handle_assert(r),
         }
+        Ok(())
     }
 
     fn handle_fetch(&mut self, f: Fetch) -> Result<(), Error> {
         match f {
-            _ => todo!("unimplemented fetch op: {:?}", f),
+            Fetch::NnLo => {
+                let val = self.fetch();
+                self.ir.set_n16_lo(val);
+            }
+            Fetch::NnHi => {
+                let val = self.fetch();
+                self.ir.set_n16_hi(val);
+            }
+            _ => todo!("fetch op: {:?}", f),
+        }
+        Ok(())
+    }
+
+    fn handle_assert(&mut self, r: instr::Register) {
+        match r {
+            instr::Register::BC => {
+                let val = self.bc().val();
+                self.addr_bus.assert(val);
+            }
+            instr::Register::DE => {
+                let val = self.de().val();
+                self.addr_bus.assert(val);
+            }
+            instr::Register::HLI => {
+                let val = self.hl().val();
+                self.hl().inc();
+                self.addr_bus.assert(val);
+            }
+            instr::Register::HLD => {
+                let val = self.hl().val();
+                self.hl().dec();
+                self.addr_bus.assert(val);
+            }
+            _ => todo!("assert register {:?}", r),
+        }
+    }
+
+    fn handle_load(&mut self, l: Load) -> Result<(), Error> {
+        match l {
+            Load::Register(dst, src) => {
+                let val = self.src_register(src)?;
+                self.load_register(dst, val)?;
+            }
+            Load::Memory(src) => self.load_memory(src), //_ => todo!("load {:?}", l),
+        }
+        Ok(())
+    }
+
+    fn load_register(&mut self, dst: instr::Register, val: u16) -> Result<(), Error> {
+        match dst {
+            instr::Register::BC => self.bc().write(val),
+            instr::Register::DE => self.de().write(val),
+            instr::Register::HL => self.hl().write(val),
+            instr::Register::SP => self.sp = val,
+            _ => todo!("register {:?}", dst),
+        }
+        Ok(())
+    }
+
+    fn load_memory(&mut self, src: instr::Register) {
+        match src {
+            instr::Register::A => {
+                self.data_bus.assert(self.a.0);
+                self.data_bus.write();
+            }
+            _ => todo!("register {:?}", src),
+        }
+    }
+
+    fn src_register(&mut self, r: instr::Register) -> Result<u16, Error> {
+        match r {
+            instr::Register::NN => Ok(self.ir.n16()),
+            _ => todo!("source register {:?}", r),
         }
     }
 
@@ -1352,13 +1429,21 @@ mod test {
             cpu.load_state(&test.initial);
             mem.load_state(&test.initial.ram);
 
-            for mc in test.cycles {
+            for (i, mc) in test.cycles.iter().enumerate() {
+                println!("cycle {}", i);
+                println!("{:?}", mc);
                 cpu.tick().unwrap();
-                if let Some(d) = mc.data {
-                    assert_eq!(d, cpu.data_bus.read());
-                }
                 if let Some(addr) = mc.addr {
+                    println!("\t----");
+                    println!("\texpected addr: 0x{:x}", addr);
+                    println!("\tactual addr: 0x{:x}", cpu.addr_bus.current());
                     assert_eq!(addr, cpu.addr_bus.current());
+                }
+                if let Some(d) = mc.data {
+                    println!("\t----");
+                    println!("\texpected data: {:?}", d);
+                    println!("\tactual data: {:?}", cpu.data_bus.read());
+                    assert_eq!(d, cpu.data_bus.read());
                 }
             }
 
@@ -1379,9 +1464,33 @@ mod test {
     }
 
     #[test]
-    fn sm83_00() {
+    fn sm83_nop() {
         // NOP
         run_json_test("00.json");
+    }
+
+    #[test]
+    fn sm83_ld_r16_nn() {
+        // LD BC, n16
+        run_json_test("01.json");
+        // LD DE, n16
+        run_json_test("11.json");
+        // LD HL, n16
+        run_json_test("21.json");
+        // LD SP, n16
+        run_json_test("31.json");
+    }
+
+    #[test]
+    fn sm83_ld_r16mem_a() {
+        // LD (BC), A
+        run_json_test("02.json");
+        // LD (DE), A
+        run_json_test("12.json");
+        // LD (HL+), A
+        run_json_test("22.json");
+        // LD (HL-), A
+        run_json_test("32.json");
     }
 
     //#[test]

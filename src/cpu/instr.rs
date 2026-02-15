@@ -95,6 +95,12 @@ impl Instruction {
     pub fn set_n16_hi(&mut self, n: u8) {
         self.n16_hi = Some(n)
     }
+
+    pub fn n16(&self) -> u16 {
+        let low = self.n16_lo.unwrap() as u16;
+        let high = self.n16_hi.unwrap() as u16;
+        (high << 8) | low
+    }
 }
 
 impl Instruction {
@@ -102,7 +108,9 @@ impl Instruction {
         match opcode {
             // NOP
             0x00 => Instruction::nop(),
-            _ => todo!("unimplemented: {}", opcode),
+            0x01 | 0x11 | 0x21 | 0x31 => Instruction::ld_rr_nn(opcode),
+            0x02 | 0x12 | 0x22 | 0x32 => Instruction::ld_rrm_nn(opcode),
+            _ => todo!("opcode {}", opcode),
         }
     }
 
@@ -110,6 +118,47 @@ impl Instruction {
         Instruction {
             opcode: 0,
             steps: vec![Step::with_ops(vec![])],
+            ..Default::default()
+        }
+    }
+
+    fn ld_rr_nn(opcode: u8) -> Instruction {
+        let r = match opcode {
+            0x01 => Register::BC,
+            0x11 => Register::DE,
+            0x21 => Register::HL,
+            0x31 => Register::SP,
+            _ => panic!("invalid opcode"),
+        };
+        Instruction {
+            cycles: (12, 0),
+            len: 3,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::NnLo)]),
+                Step::with_ops(vec![
+                    Op::Fetch(Fetch::NnHi),
+                    Op::Load(Load::Register(r, Register::NN)),
+                ]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn ld_rrm_nn(opcode: u8) -> Instruction {
+        let r = match opcode {
+            0x02 => Register::BC,
+            0x12 => Register::DE,
+            0x22 => Register::HLI,
+            0x32 => Register::HLD,
+            _ => panic!("invalid opcode"),
+        };
+        Instruction {
+            cycles: (8, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![
+                Op::Assert(r),
+                Op::Load(Load::Memory(Register::A)),
+            ])],
             ..Default::default()
         }
     }
@@ -515,20 +564,21 @@ impl Step {
 #[derive(Debug, Clone, Copy)]
 pub enum Op {
     Fetch(Fetch),
-    Assert(Assert),
+    Assert(Register),
+    Load(Load),
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Fetch {
     N,
-    NnLow,
-    NnHigh,
+    NnLo,
+    NnHi,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Assert {
-    Address(Register),
-    Data(Register),
+pub enum Load {
+    Register(Register, Register),
+    Memory(Register),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -541,6 +591,12 @@ pub enum Register {
     F,
     H,
     L,
+    BC,
+    HL,
+    HLI,
+    HLD,
+    DE,
+    AF,
     SP,
     PC,
     N,
