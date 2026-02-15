@@ -547,6 +547,8 @@ impl CPU {
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
+            Op::Inc(r) => self.handle_inc(r),
+            _ => todo!("op {:?}", op),
         }
         Ok(())
     }
@@ -564,6 +566,25 @@ impl CPU {
             _ => todo!("fetch op: {:?}", f),
         }
         Ok(())
+    }
+
+    fn handle_inc(&mut self, r: instr::Register) {
+        match r {
+            instr::Register::BC => {
+                self.bc().inc();
+                return;
+            }
+            instr::Register::DE => {
+                self.de().inc();
+                return;
+            }
+            instr::Register::HL => {
+                self.hl().inc();
+                return;
+            }
+            instr::Register::SP => self.sp = self.sp.wrapping_add(1),
+            _ => todo!("inc register {:?}", r),
+        }
     }
 
     fn handle_assert(&mut self, r: instr::Register) {
@@ -1491,6 +1512,18 @@ mod test {
         run_json_test("22.json");
         // LD (HL-), A
         run_json_test("32.json");
+    }
+
+    #[test]
+    fn sm83_inc_r16() {
+        // INC BC
+        run_json_test("03.json");
+        // INC DE
+        run_json_test("13.json");
+        // INC HL
+        run_json_test("23.json");
+        // INC SP
+        run_json_test("33.json");
     }
 
     //#[test]

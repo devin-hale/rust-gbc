@@ -110,6 +110,7 @@ impl Instruction {
             0x00 => Instruction::nop(),
             0x01 | 0x11 | 0x21 | 0x31 => Instruction::ld_rr_nn(opcode),
             0x02 | 0x12 | 0x22 | 0x32 => Instruction::ld_rrm_nn(opcode),
+            0x03 | 0x13 | 0x23 | 0x33 => Instruction::inc_rr(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -159,6 +160,22 @@ impl Instruction {
                 Op::Assert(r),
                 Op::Load(Load::Memory(Register::A)),
             ])],
+            ..Default::default()
+        }
+    }
+
+    fn inc_rr(opcode: u8) -> Instruction {
+        let r = match opcode {
+            0x03 => Register::BC,
+            0x13 => Register::DE,
+            0x23 => Register::HL,
+            0x33 => Register::SP,
+            _ => panic!("invalid opcode"),
+        };
+        Instruction {
+            cycles: (8, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![Op::Inc(r)])],
             ..Default::default()
         }
     }
@@ -566,6 +583,8 @@ pub enum Op {
     Fetch(Fetch),
     Assert(Register),
     Load(Load),
+    Inc(Register),
+    Dec(Register),
 }
 
 #[derive(Debug, Clone, Copy)]
