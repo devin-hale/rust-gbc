@@ -19,7 +19,7 @@ use thiserror::Error;
 
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3};
 use crate::{
-    cpu::instr::{Error as IError, Fetch, JR, LDH, Load, Op, decode, decode_prefix},
+    cpu::instr::{Error as IError, Fetch, Inc, JR, LDH, Load, Op, decode, decode_prefix},
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
 };
@@ -547,7 +547,7 @@ impl CPU {
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
-            Op::Inc(r) => self.handle_inc(r),
+            Op::Inc(i) => self.handle_inc(i),
             _ => todo!("op {:?}", op),
         }
         Ok(())
@@ -568,7 +568,33 @@ impl CPU {
         Ok(())
     }
 
-    fn handle_inc(&mut self, r: instr::Register) {
+    fn handle_inc(&mut self, i: Inc) {
+        match i {
+            Inc::Register(r) => self.handle_inc_register(r),
+            Inc::Memory => self.handle_inc_mem(),
+        }
+    }
+
+    fn handle_inc_mem(&mut self) {
+        let val = self.data_bus.read();
+        let result = val.wrapping_add(1);
+        if bit::check_hc(val, 1) {
+            self.set_flag(Flag::H);
+        } else {
+            self.reset_flag(Flag::H);
+        }
+        if result == 0 {
+            self.set_flag(Flag::Z);
+        } else {
+            self.reset_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+
+        self.data_bus.assert(result);
+        self.data_bus.write();
+    }
+
+    fn handle_inc_register(&mut self, r: instr::Register) {
         match r {
             instr::Register::BC => {
                 self.bc().inc();
@@ -583,6 +609,111 @@ impl CPU {
                 return;
             }
             instr::Register::SP => self.sp = self.sp.wrapping_add(1),
+            instr::Register::A => {
+                let val = self.a.val();
+                let result = self.a.inc();
+                if bit::check_hc(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.reset_flag(Flag::N);
+            }
+            instr::Register::B => {
+                let val = self.b.val();
+                let result = self.b.inc();
+                if bit::check_hc(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.reset_flag(Flag::N);
+            }
+            instr::Register::D => {
+                let val = self.d.val();
+                let result = self.d.inc();
+                if bit::check_hc(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.reset_flag(Flag::N);
+            }
+            instr::Register::H => {
+                let val = self.h.val();
+                let result = self.h.inc();
+                if bit::check_hc(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.reset_flag(Flag::N);
+            }
+            instr::Register::C => {
+                let val = self.c.val();
+                let result = self.c.inc();
+                if bit::check_hc(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.reset_flag(Flag::N);
+            }
+            instr::Register::E => {
+                let val = self.e.val();
+                let result = self.e.inc();
+                if bit::check_hc(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.reset_flag(Flag::N);
+            }
+            instr::Register::L => {
+                let val = self.l.val();
+                let result = self.l.inc();
+                if bit::check_hc(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.reset_flag(Flag::N);
+            }
             _ => todo!("inc register {:?}", r),
         }
     }
@@ -605,6 +736,10 @@ impl CPU {
             instr::Register::HLD => {
                 let val = self.hl().val();
                 self.hl().dec();
+                self.addr_bus.assert(val);
+            }
+            instr::Register::HL => {
+                let val = self.hl().val();
                 self.addr_bus.assert(val);
             }
             _ => todo!("assert register {:?}", r),
@@ -655,6 +790,9 @@ impl CPU {
         if self.ir.done() {
             let opcode = self.fetch();
             self.ir = Instruction::decode(opcode);
+            if self.ir.eager() {
+                self.execute()?;
+            }
         }
         Ok(())
     }
@@ -1467,7 +1605,6 @@ mod test {
                     assert_eq!(d, cpu.data_bus.read());
                 }
             }
-
             cmp_mem_state(&mut mem, &test.r#final.ram);
             cmp_cpu_state(&mut cpu, &test.r#final);
         }
@@ -1524,6 +1661,26 @@ mod test {
         run_json_test("23.json");
         // INC SP
         run_json_test("33.json");
+    }
+
+    #[test]
+    fn sm83_inc_r() {
+        // INC B
+        run_json_test("04.json");
+        // INC D
+        run_json_test("14.json");
+        // INC H
+        run_json_test("24.json");
+        // INC (HL)
+        run_json_test("34.json");
+        // INC C
+        run_json_test("0c.json");
+        // INC E
+        run_json_test("1c.json");
+        // INC L
+        run_json_test("2c.json");
+        // INC A
+        run_json_test("3c.json");
     }
 
     //#[test]

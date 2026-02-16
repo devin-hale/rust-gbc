@@ -90,6 +90,11 @@ pub fn check_overflow(a: u8, b: u8, n: u8) -> bool {
 }
 
 #[inline(always)]
+pub fn check_hc(a: u8, b: u8) -> bool {
+    (((a & 0xF) + (b & 0xF)) & 0x10) == 0x10
+}
+
+#[inline(always)]
 pub fn check_overflow_word(a: u16, b: u16, n: u8) -> bool {
     let bit = 1 << n;
     let a = a & bit;

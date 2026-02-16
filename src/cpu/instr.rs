@@ -44,6 +44,7 @@ pub struct Instruction {
     n16_hi: Option<u8>,
 
     steps: Vec<Step>,
+    eager: bool,
     branched: bool,
     done: bool,
 }
@@ -74,6 +75,10 @@ impl Instruction {
 
     pub fn done(&self) -> bool {
         self.done
+    }
+
+    pub fn eager(&self) -> bool {
+        self.eager
     }
 
     pub fn complete(&mut self) {
@@ -111,6 +116,7 @@ impl Instruction {
             0x01 | 0x11 | 0x21 | 0x31 => Instruction::ld_rr_nn(opcode),
             0x02 | 0x12 | 0x22 | 0x32 => Instruction::ld_rrm_nn(opcode),
             0x03 | 0x13 | 0x23 | 0x33 => Instruction::inc_rr(opcode),
+            0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => Instruction::inc_r(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -175,9 +181,39 @@ impl Instruction {
         Instruction {
             cycles: (8, 0),
             len: 1,
-            steps: vec![Step::with_ops(vec![Op::Inc(r)])],
+            steps: vec![Step::with_ops(vec![Op::Inc(Inc::Register(r))])],
             ..Default::default()
         }
+    }
+
+    fn inc_r(opcode: u8) -> Instruction {
+        let r = match opcode {
+            0x04 => Register::B,
+            0x14 => Register::D,
+            0x24 => Register::H,
+            0x34 => Register::HL,
+            0x0C => Register::C,
+            0x1C => Register::E,
+            0x2C => Register::L,
+            0x3C => Register::A,
+            _ => panic!("invalid opcode"),
+        };
+        let mut i = Instruction {
+            cycles: (4, 0),
+            len: 1,
+            eager: true,
+            ..Default::default()
+        };
+        if r == Register::HL {
+            i.cycles = (12, 0);
+            i.eager = false;
+            i.steps.push(Step::with_ops(vec![Op::Assert(Register::HL)]));
+            i.steps.push(Step::with_ops(vec![Op::Inc(Inc::Memory)]));
+        } else {
+            i.steps
+                .push(Step::with_ops(vec![Op::Inc(Inc::Register(r))]));
+        }
+        i
     }
 }
 
@@ -205,6 +241,7 @@ impl Default for Instruction {
             n16_lo: None,
             n16_hi: None,
             steps: vec![],
+            eager: false,
             branched: false,
             done: false,
         }
@@ -583,7 +620,7 @@ pub enum Op {
     Fetch(Fetch),
     Assert(Register),
     Load(Load),
-    Inc(Register),
+    Inc(Inc),
     Dec(Register),
 }
 
@@ -595,12 +632,18 @@ pub enum Fetch {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub enum Inc {
+    Memory,
+    Register(Register),
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum Load {
     Register(Register, Register),
     Memory(Register),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Register {
     A,
     B,
