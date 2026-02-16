@@ -95,6 +95,21 @@ pub fn check_hc(a: u8, b: u8) -> bool {
 }
 
 #[inline(always)]
+pub fn check_b(a: u8, b: u8) -> bool {
+    (((a & 0xF).wrapping_sub(b & 0xF)) & 0x10) == 0x10
+}
+
+#[inline(always)]
+pub fn check_hc_word(a: u16, b: u16) -> bool {
+    (((a & 0xFFF) + (b & 0xFFF)) & 0x1000) == 0x1000
+}
+
+#[inline(always)]
+pub fn check_b_word(a: u16, b: u16) -> bool {
+    (((a & 0b1_0000_0000_0000) - (b & 0b1000_0000_0000)) & 0b1000_0000_0000) == 0b1000_0000_0000
+}
+
+#[inline(always)]
 pub fn check_overflow_word(a: u16, b: u16, n: u8) -> bool {
     let bit = 1 << n;
     let a = a & bit;

@@ -17,9 +17,9 @@ use serde::{
 use serde_json::Value;
 use thiserror::Error;
 
-use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, Operation, R8, R16, T3};
+use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, R8, R16, T3};
 use crate::{
-    cpu::instr::{Error as IError, Fetch, Inc, JR, LDH, Load, Op, decode, decode_prefix},
+    cpu::instr::{Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, decode, decode_prefix},
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
 };
@@ -265,7 +265,7 @@ impl Register {
     }
 
     fn dec(&mut self) -> u8 {
-        self.0 -= 1;
+        self.0 = self.0.wrapping_sub(1);
         self.0
     }
 
@@ -548,7 +548,8 @@ impl CPU {
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
             Op::Inc(i) => self.handle_inc(i),
-            _ => todo!("op {:?}", op),
+            Op::Dec(d) => self.handle_dec(d),
+            //_ => todo!("op {:?}", op),
         }
         Ok(())
     }
@@ -575,6 +576,13 @@ impl CPU {
         }
     }
 
+    fn handle_dec(&mut self, d: Dec) {
+        match d {
+            Dec::Register(r) => self.handle_dec_register(r),
+            Dec::Memory => self.handle_dec_mem(),
+        }
+    }
+
     fn handle_inc_mem(&mut self) {
         let val = self.data_bus.read();
         let result = val.wrapping_add(1);
@@ -589,6 +597,25 @@ impl CPU {
             self.reset_flag(Flag::Z);
         }
         self.reset_flag(Flag::N);
+
+        self.data_bus.assert(result);
+        self.data_bus.write();
+    }
+
+    fn handle_dec_mem(&mut self) {
+        let val = self.data_bus.read();
+        let result = val.wrapping_sub(1);
+        if bit::check_b(val, 1) {
+            self.set_flag(Flag::H);
+        } else {
+            self.reset_flag(Flag::H);
+        }
+        if result == 0 {
+            self.set_flag(Flag::Z);
+        } else {
+            self.reset_flag(Flag::Z);
+        }
+        self.set_flag(Flag::N);
 
         self.data_bus.assert(result);
         self.data_bus.write();
@@ -713,6 +740,130 @@ impl CPU {
                     self.reset_flag(Flag::Z);
                 }
                 self.reset_flag(Flag::N);
+            }
+            _ => todo!("inc register {:?}", r),
+        }
+    }
+
+    fn handle_dec_register(&mut self, r: instr::Register) {
+        match r {
+            instr::Register::BC => {
+                self.bc().dec();
+                return;
+            }
+            instr::Register::DE => {
+                self.de().dec();
+                return;
+            }
+            instr::Register::HL => {
+                self.hl().dec();
+                return;
+            }
+            instr::Register::SP => self.sp = self.sp.wrapping_sub(1),
+            instr::Register::A => {
+                let val = self.a.val();
+                let result = self.a.dec();
+                if bit::check_b(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.set_flag(Flag::N);
+            }
+            instr::Register::B => {
+                let val = self.b.val();
+                let result = self.b.dec();
+                if bit::check_b(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.set_flag(Flag::N);
+            }
+            instr::Register::D => {
+                let val = self.d.val();
+                let result = self.d.dec();
+                if bit::check_b(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.set_flag(Flag::N);
+            }
+            instr::Register::H => {
+                let val = self.h.val();
+                let result = self.h.dec();
+                if bit::check_b(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.set_flag(Flag::N);
+            }
+            instr::Register::C => {
+                let val = self.c.val();
+                let result = self.c.dec();
+                if bit::check_b(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.set_flag(Flag::N);
+            }
+            instr::Register::E => {
+                let val = self.e.val();
+                let result = self.e.dec();
+                if bit::check_b(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.set_flag(Flag::N);
+            }
+            instr::Register::L => {
+                let val = self.l.val();
+                let result = self.l.dec();
+                if bit::check_b(val, 1) {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if result == 0 {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+                self.set_flag(Flag::N);
             }
             _ => todo!("inc register {:?}", r),
         }
@@ -1681,6 +1832,26 @@ mod test {
         run_json_test("2c.json");
         // INC A
         run_json_test("3c.json");
+    }
+
+    #[test]
+    fn sm83_dec_r() {
+        // INC B
+        run_json_test("05.json");
+        // INC D
+        run_json_test("15.json");
+        // INC H
+        run_json_test("25.json");
+        // INC (HL)
+        run_json_test("35.json");
+        // INC C
+        run_json_test("0d.json");
+        // INC E
+        run_json_test("1d.json");
+        // INC L
+        run_json_test("2d.json");
+        // INC A
+        run_json_test("3d.json");
     }
 
     //#[test]
