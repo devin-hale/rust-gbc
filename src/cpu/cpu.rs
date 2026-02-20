@@ -564,7 +564,10 @@ impl CPU {
                 let val = self.fetch();
                 self.ir.set_n16_hi(val);
             }
-            _ => todo!("fetch op: {:?}", f),
+            Fetch::N => {
+                let val = self.fetch();
+                self.ir.set_n8(val);
+            }
         }
         Ok(())
     }
@@ -914,6 +917,13 @@ impl CPU {
             instr::Register::DE => self.de().write(val),
             instr::Register::HL => self.hl().write(val),
             instr::Register::SP => self.sp = val,
+            instr::Register::B => self.b.write(val as u8),
+            instr::Register::D => self.d.write(val as u8),
+            instr::Register::H => self.h.write(val as u8),
+            instr::Register::C => self.c.write(val as u8),
+            instr::Register::E => self.e.write(val as u8),
+            instr::Register::L => self.l.write(val as u8),
+            instr::Register::A => self.a.write(val as u8),
             _ => todo!("register {:?}", dst),
         }
         Ok(())
@@ -925,6 +935,10 @@ impl CPU {
                 self.data_bus.assert(self.a.0);
                 self.data_bus.write();
             }
+            instr::Register::N => {
+                self.data_bus.assert(self.ir.n8());
+                self.data_bus.write();
+            }
             _ => todo!("register {:?}", src),
         }
     }
@@ -932,6 +946,7 @@ impl CPU {
     fn src_register(&mut self, r: instr::Register) -> Result<u16, Error> {
         match r {
             instr::Register::NN => Ok(self.ir.n16()),
+            instr::Register::N => Ok(self.ir.n8() as u16),
             _ => todo!("source register {:?}", r),
         }
     }
@@ -1836,22 +1851,43 @@ mod test {
 
     #[test]
     fn sm83_dec_r() {
-        // INC B
+        // DEC B
         run_json_test("05.json");
-        // INC D
+        // DEC D
         run_json_test("15.json");
-        // INC H
+        // DEC H
         run_json_test("25.json");
-        // INC (HL)
+        // DEC (HL)
         run_json_test("35.json");
-        // INC C
+        // DEC C
         run_json_test("0d.json");
-        // INC E
+        // DEC E
         run_json_test("1d.json");
-        // INC L
+        // DEC L
         run_json_test("2d.json");
-        // INC A
+        // DEC A
         run_json_test("3d.json");
+    }
+
+    #[test]
+    fn sm83_ld_r8_n() {
+        // LD B, n
+        run_json_test("06.json");
+        // LD D, n
+        run_json_test("16.json");
+        // LD H, n
+        run_json_test("26.json");
+        // LD (HL), n
+        run_json_test("36.json");
+
+        // LD C, n
+        run_json_test("0e.json");
+        // LD E, n
+        run_json_test("1e.json");
+        // LD L, n
+        run_json_test("2e.json");
+        // LD A, n
+        run_json_test("3e.json");
     }
 
     //#[test]

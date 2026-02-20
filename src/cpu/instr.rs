@@ -101,6 +101,10 @@ impl Instruction {
         let high = self.n16_hi.unwrap() as u16;
         (high << 8) | low
     }
+
+    pub fn n8(&self) -> u8 {
+        self.n8.unwrap()
+    }
 }
 
 impl Instruction {
@@ -113,6 +117,7 @@ impl Instruction {
             0x03 | 0x13 | 0x23 | 0x33 => Instruction::inc_rr(opcode),
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => Instruction::inc_r(opcode),
             0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => Instruction::dec_r(opcode),
+            0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => Instruction::ld_r_n(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -238,6 +243,39 @@ impl Instruction {
         } else {
             i.steps
                 .push(Step::with_ops(vec![Op::Dec(Dec::Register(r))]));
+        }
+        i
+    }
+
+    fn ld_r_n(opcode: u8) -> Instruction {
+        let r = match opcode {
+            0x06 => Register::B,
+            0x16 => Register::D,
+            0x26 => Register::H,
+            0x36 => Register::HL,
+            0x0E => Register::C,
+            0x1E => Register::E,
+            0x2E => Register::L,
+            0x3E => Register::A,
+            _ => panic!("invalid opcode"),
+        };
+        let mut i = Instruction {
+            cycles: (8, 0),
+            len: 2,
+            ..Default::default()
+        };
+        if r == Register::HL {
+            i.cycles = (12, 0);
+            i.steps.push(Step::with_ops(vec![Op::Fetch(Fetch::N)]));
+            i.steps.push(Step::with_ops(vec![
+                Op::Assert(Register::HL),
+                Op::Load(Load::Memory(Register::N)),
+            ]))
+        } else {
+            i.steps.push(Step::with_ops(vec![
+                Op::Fetch(Fetch::N),
+                Op::Load(Load::Register(r, Register::N)),
+            ]));
         }
         i
     }
@@ -750,13 +788,13 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
         }
 
         // inc r16
-        0b0011 => {
-            let r: R16 = ((opcode & 0b0011_0000) >> 4).try_into()?;
-            //i.op = INC::R16(r).into();
-            i.len = 1;
-            i.cycles = (8, 0);
-            return Ok(i);
-        }
+        //0b0011 => {
+        //    let r: R16 = ((opcode & 0b0011_0000) >> 4).try_into()?;
+        //    //i.op = INC::R16(r).into();
+        //    i.len = 1;
+        //    i.cycles = (8, 0);
+        //    return Ok(i);
+        //}
 
         // dec r16
         0b1011 => {
@@ -780,23 +818,23 @@ fn decode_block_0(opcode: u8) -> Result<Instruction, Error> {
 
     let last_three = opcode & 0b111;
     match last_three {
-        // inc r8
-        0b100 => {
-            let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
-            //i.op = INC::R8(r).into();
-            i.len = 1;
-            i.cycles = (4, 0);
-            return Ok(i);
-        }
+        //// inc r8
+        //0b100 => {
+        //    let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
+        //    //i.op = INC::R8(r).into();
+        //    i.len = 1;
+        //    i.cycles = (4, 0);
+        //    return Ok(i);
+        //}
 
-        // dec r8
-        0b101 => {
-            let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
-            //i.op = DEC::R8(r).into();
-            i.len = 1;
-            i.cycles = (4, 0);
-            return Ok(i);
-        }
+        //// dec r8
+        //0b101 => {
+        //    let r: R8 = ((opcode & 0b0011_1000) >> 3).try_into()?;
+        //    //i.op = DEC::R8(r).into();
+        //    i.len = 1;
+        //    i.cycles = (4, 0);
+        //    return Ok(i);
+        //}
 
         // ld r8, n8
         0b110 => {
