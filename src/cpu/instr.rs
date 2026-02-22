@@ -119,6 +119,7 @@ impl Instruction {
             0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => Instruction::dec_r(opcode),
             0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => Instruction::ld_r_n(opcode),
             0x07 => Instruction::rlca(),
+            0x17 => Instruction::rla(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -285,7 +286,17 @@ impl Instruction {
         Instruction {
             cycles: (4, 0),
             len: 1,
-            steps: vec![Step::with_ops(vec![Op::RLCA(Register::A)])],
+            steps: vec![Step::with_ops(vec![Op::RLC(Register::A)])],
+            eager: true,
+            ..Default::default()
+        }
+    }
+
+    fn rla() -> Instruction {
+        Instruction {
+            cycles: (4, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![Op::RL(Register::A)])],
             eager: true,
             ..Default::default()
         }
@@ -575,7 +586,8 @@ pub enum Op {
     Load(Load),
     Inc(Inc),
     Dec(Dec),
-    RLCA(Register),
+    RLC(Register),
+    RL(Register),
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -549,7 +549,8 @@ impl CPU {
             Op::Assert(r) => self.handle_assert(r),
             Op::Inc(i) => self.handle_inc(i),
             Op::Dec(d) => self.handle_dec(d),
-            Op::RLCA(r) => self.handle_rlc(r),
+            Op::RLC(r) => self.handle_rlc(r),
+            Op::RL(r) => self.handle_rl(r),
             _ => todo!("op {:?}", op),
         }
         Ok(())
@@ -1164,6 +1165,21 @@ impl CPU {
         self.reset_flag(Flag::H);
     }
 
+    fn handle_rl(&mut self, r: instr::Register) {
+        let val = self.src_register(r).unwrap() as u8;
+        let cf = self.cf() as u8;
+        let b7 = bit::get(val, 7);
+        self.set_flag_from_val(Flag::C, b7);
+        let result = (val << 1).wrapping_add(cf);
+        self.load_register(r, result as u16).unwrap();
+
+        if r == instr::Register::A || result == 0 {
+            self.reset_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+    }
+
     fn rrc(&mut self, r: R8) {
         todo!("rrc");
         //let val = self.src_r8(r);
@@ -1179,36 +1195,19 @@ impl CPU {
         //self.reset_flag(Flag::H);
     }
 
-    fn rl(&mut self, r: R8) {
-        todo!("rrc")
-        //let val = self.src_r8(r);
-        //let cf = self.cf() as u8;
-        //let b7 = bit::get(val, 7);
-        //self.set_flag_from_val(Flag::C, b7);
-        //let result = (val << 1).wrapping_add(cf);
-        //self.ld_r8(r, result);
+    fn handle_rr(&mut self, r: instr::Register) {
+        let val = self.src_register(r).unwrap() as u8;
+        let cf = self.cf() as u8;
+        let b0 = bit::get(val, 0);
+        self.set_flag_from_val(Flag::C, b0);
+        let result = (val >> 1).wrapping_add(cf << 7);
+        self.load_register(r, result as u16).unwrap();
 
-        //if r == R8::A || result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //self.reset_flag(Flag::H);
-    }
-
-    fn rr(&mut self, r: R8) {
-        todo!("rr")
-        //let val = self.src_r8(r);
-        //let cf = self.cf() as u8;
-        //let b0 = bit::get(val, 0);
-        //self.set_flag_from_val(Flag::C, b0);
-        //let result = (val >> 1).wrapping_add(cf << 7);
-        //self.ld_r8(r, result);
-
-        //if r == R8::A || result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //self.reset_flag(Flag::H);
+        if r == instr::Register::A || result == 0 {
+            self.set_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
     }
 
     fn daa(&mut self) {
@@ -1810,6 +1809,11 @@ mod test {
     #[test]
     fn sm83_rlca() {
         run_json_test("07.json");
+    }
+
+    #[test]
+    fn sm83_rla() {
+        run_json_test("17.json");
     }
 
     //#[test]
