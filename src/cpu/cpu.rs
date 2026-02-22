@@ -555,6 +555,8 @@ impl CPU {
             Op::RR(r) => self.handle_rr(r),
             Op::DAA => self.handle_daa(),
             Op::SCF => self.handle_scf(),
+            Op::CPL => self.handle_cpl(),
+            Op::CCF => self.handle_ccf(),
             _ => todo!("op {:?}", op),
         }
         Ok(())
@@ -1243,16 +1245,16 @@ impl CPU {
         self.set_flag(Flag::C);
     }
 
-    fn cpl(&mut self) {
+    fn handle_cpl(&mut self) {
         let v = !self.a.val();
         self.a.write(v);
         self.set_flag(Flag::N);
         self.set_flag(Flag::H);
     }
 
-    fn ccf(&mut self) {
+    fn handle_ccf(&mut self) {
         self.reset_flag(Flag::N);
-        self.set_flag_from_val(Flag::H, self.cf() as u8);
+        self.reset_flag(Flag::H);
         self.invert_flag(Flag::C);
     }
 
@@ -1825,6 +1827,16 @@ mod test {
     #[test]
     fn sm83_rra() {
         run_json_test("1f.json");
+    }
+
+    #[test]
+    fn sm83_cpl() {
+        run_json_test("2f.json");
+    }
+
+    #[test]
+    fn sm83_ccf() {
+        run_json_test("3f.json");
     }
 
     //#[test]

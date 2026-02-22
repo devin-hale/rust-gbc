@@ -124,6 +124,8 @@ impl Instruction {
             0x37 => Instruction::scf(),
             0x0F => Instruction::rrca(),
             0x1F => Instruction::rra(),
+            0x2F => Instruction::cpl(),
+            0x3F => Instruction::ccf(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -341,6 +343,26 @@ impl Instruction {
             cycles: (4, 0),
             len: 1,
             steps: vec![Step::with_ops(vec![Op::SCF])],
+            eager: true,
+            ..Default::default()
+        }
+    }
+
+    fn cpl() -> Instruction {
+        Instruction {
+            cycles: (4, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![Op::CPL])],
+            eager: true,
+            ..Default::default()
+        }
+    }
+
+    fn ccf() -> Instruction {
+        Instruction {
+            cycles: (4, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![Op::CCF])],
             eager: true,
             ..Default::default()
         }
@@ -636,6 +658,8 @@ pub enum Op {
     RR(Register),
     DAA,
     SCF,
+    CPL,
+    CCF,
 }
 
 #[derive(Debug, Clone, Copy)]
