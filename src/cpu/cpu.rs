@@ -19,7 +19,7 @@ use thiserror::Error;
 
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, R8, R16, T3};
 use crate::{
-    cpu::instr::{Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, decode, decode_prefix},
+    cpu::instr::{Add, Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, decode, decode_prefix},
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
 };
@@ -544,6 +544,7 @@ impl CPU {
 
     fn execute_op(&mut self, op: Op) -> Result<(), Error> {
         match op {
+            Op::Add(a) => self.handle_add(a),
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
@@ -576,6 +577,10 @@ impl CPU {
             Fetch::N => {
                 let val = self.fetch();
                 self.ir.set_n8(val);
+            }
+            Fetch::E => {
+                let val = self.fetch() as i8;
+                self.ir.set_e(val);
             }
         }
         Ok(())
@@ -950,6 +955,7 @@ impl CPU {
             instr::Register::DE => self.de().write(val),
             instr::Register::HL => self.hl().write(val),
             instr::Register::SP => self.sp = val,
+            instr::Register::PC => self.pc = val,
             instr::Register::B => self.b.write(val as u8),
             instr::Register::D => self.d.write(val as u8),
             instr::Register::H => self.h.write(val as u8),
@@ -1010,7 +1016,9 @@ impl CPU {
         match r {
             instr::Register::NN => Ok(self.ir.n16()),
             instr::Register::N => Ok(self.ir.n8() as u16),
+            instr::Register::NE => Ok(self.ir.e() as u16),
             instr::Register::A => Ok(self.a.val() as u16),
+            instr::Register::PC => Ok(self.pc),
             _ => todo!("source register {:?}", r),
         }
     }
@@ -1043,18 +1051,15 @@ impl CPU {
         }
     }
 
-    fn jr(&mut self, b: u8) {
-        self.pc = self.pc.wrapping_add(b as u16);
-    }
-
     fn jr_cond(&mut self, c: Cond, b: u8) -> bool {
-        if self.cc(c) {
-            self.jr(b);
-            return true;
-        } else {
-            self.fetch();
-            return false;
-        }
+        todo!("jr cond");
+        //if self.cc(c) {
+        //    self.handle_jr(b);
+        //    return true;
+        //} else {
+        //    self.fetch();
+        //    return false;
+        //}
     }
 
     fn jr_word(&mut self, w: u16) {
@@ -1313,67 +1318,25 @@ impl CPU {
         self.invert_flag(Flag::C);
     }
 
-    // ADD
-
-    fn add(&mut self, add: ADD) {
-        todo!("rework")
-        //match add {
-        //    ADD::A(r) => self.add_r8(r),
-        //    ADD::HL(r) => self.add_r16(r),
-        //    ADD::SP => self.add_sp(),
-        //}
+    fn handle_add(&mut self, a: Add) {
+        match a {
+            Add::Register(a, b) => self.handle_add_register(a, b),
+            _ => todo!("add {:?}", a),
+        }
     }
 
-    fn add_r8(&mut self, r: R8) {
-        todo!("add_r8")
-        //let a = self.a.val();
-        //let val = self.src_r8(r);
-        //let result = a.wrapping_add(val);
-        //self.a.write(result);
-
-        //if result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //if bit::check_overflow(a, val, 3) {
-        //    self.set_flag(Flag::H);
-        //}
-        //if bit::check_overflow(a, val, 7) {
-        //    self.set_flag(Flag::C);
-        //}
+    fn handle_add_register(&mut self, r1: instr::Register, r2: instr::Register) {
+        let a = self.src_register(r1).unwrap();
+        let result: u16;
+        if r2 == instr::Register::NE {
+            let b = self.src_register(r2).unwrap() as i16;
+            result = (a as i16).wrapping_add(b) as u16;
+        } else {
+            let b = self.src_register(r2).unwrap();
+            result = a.wrapping_add(b);
+        }
+        self.load_register(r1, result).unwrap();
     }
-
-    fn add_r16(&mut self, r: R16) {
-        todo!("add_r16")
-        //let hl = self.hl().val();
-        //let val = self.src_r16(r);
-        //let result = hl.wrapping_add(val);
-        //self.hl().write(result);
-
-        //self.reset_flag(Flag::N);
-        //if bit::check_overflow_word(hl, val, 11) {
-        //    self.set_flag(Flag::H);
-        //}
-        //if bit::check_overflow_word(hl, val, 15) {
-        //    self.set_flag(Flag::C);
-        //}
-    }
-
-    //fn add_sp(&mut self) {
-    //    let val = self.imm() as u16;
-    //    let sp = self.sp;
-    //    let result = sp.wrapping_add(val);
-    //    self.sp = result;
-
-    //    self.reset_flag(Flag::Z);
-    //    self.reset_flag(Flag::N);
-    //    if bit::check_overflow_word(sp, val, 3) {
-    //        self.set_flag(Flag::H);
-    //    }
-    //    if bit::check_overflow_word(sp, val, 7) {
-    //        self.set_flag(Flag::H);
-    //    }
-    //}
 
     // ADC
     fn adc(&mut self, b: R8) {
@@ -1897,6 +1860,11 @@ mod test {
     #[test]
     fn sm83_ld_nnm_sp() {
         run_json_test("08.json");
+    }
+
+    #[test]
+    fn sm83_jr() {
+        run_json_test("18.json");
     }
 
     //#[test]

@@ -41,6 +41,7 @@ pub struct Instruction {
     n8: Option<u8>,
     n16_lo: Option<u8>,
     n16_hi: Option<u8>,
+    e: Option<i8>,
 
     steps: Vec<Step>,
     eager: bool,
@@ -113,6 +114,14 @@ impl Instruction {
     pub fn n8(&self) -> u8 {
         self.n8.unwrap()
     }
+
+    pub fn e(&self) -> i8 {
+        self.e.unwrap()
+    }
+
+    pub fn set_e(&mut self, e: i8) {
+        self.e = Some(e)
+    }
 }
 
 impl Instruction {
@@ -135,6 +144,7 @@ impl Instruction {
             0x2F => Instruction::cpl(),
             0x3F => Instruction::ccf(),
             0x08 => Instruction::ld_nnm_sp(),
+            0x18 => Instruction::jr(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -394,6 +404,18 @@ impl Instruction {
             ..Default::default()
         }
     }
+
+    fn jr() -> Instruction {
+        Instruction {
+            cycles: (12, 0),
+            len: 3,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::E)]),
+                Step::with_ops(vec![Op::Add(Add::Register(Register::PC, Register::NE))]),
+            ],
+            ..Default::default()
+        }
+    }
 }
 
 impl Default for Instruction {
@@ -403,6 +425,7 @@ impl Default for Instruction {
             len: 1,
             cycles: (4, 0),
             n8: None,
+            e: None,
             n16_lo: None,
             n16_hi: None,
             steps: vec![],
@@ -674,6 +697,7 @@ impl Step {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Op {
+    Add(Add),
     Fetch(Fetch),
     Assert(Register),
     AssertInc(Register),
@@ -695,6 +719,13 @@ pub enum Fetch {
     N,
     NnLo,
     NnHi,
+    E,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Add {
+    Memory(Register, Register),
+    Register(Register, Register),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -739,6 +770,7 @@ pub enum Register {
     NN,
     NnLo,
     NnHi,
+    NE,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
