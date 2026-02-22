@@ -552,6 +552,7 @@ impl CPU {
             Op::RLC(r) => self.handle_rlc(r),
             Op::RL(r) => self.handle_rl(r),
             Op::RRC(r) => self.handle_rrc(r),
+            Op::RR(r) => self.handle_rr(r),
             _ => todo!("op {:?}", op),
         }
         Ok(())
@@ -1204,7 +1205,7 @@ impl CPU {
         self.load_register(r, result as u16).unwrap();
 
         if r == instr::Register::A || result == 0 {
-            self.set_flag(Flag::Z);
+            self.reset_flag(Flag::Z);
         }
         self.reset_flag(Flag::N);
         self.reset_flag(Flag::H);
@@ -1819,6 +1820,11 @@ mod test {
     #[test]
     fn sm83_rrca() {
         run_json_test("0f.json");
+    }
+
+    #[test]
+    fn sm83_rra() {
+        run_json_test("1f.json");
     }
 
     //#[test]
