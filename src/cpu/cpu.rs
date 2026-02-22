@@ -554,6 +554,7 @@ impl CPU {
             Op::RRC(r) => self.handle_rrc(r),
             Op::RR(r) => self.handle_rr(r),
             Op::DAA => self.handle_daa(),
+            Op::SCF => self.handle_scf(),
             _ => todo!("op {:?}", op),
         }
         Ok(())
@@ -1236,17 +1237,17 @@ impl CPU {
         self.reset_flag(Flag::H);
     }
 
+    fn handle_scf(&mut self) {
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+        self.set_flag(Flag::C);
+    }
+
     fn cpl(&mut self) {
         let v = !self.a.val();
         self.a.write(v);
         self.set_flag(Flag::N);
         self.set_flag(Flag::H);
-    }
-
-    fn scf(&mut self) {
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
-        self.set_flag(Flag::C);
     }
 
     fn ccf(&mut self) {
@@ -1809,6 +1810,11 @@ mod test {
     #[test]
     fn sm83_daa() {
         run_json_test("27.json");
+    }
+
+    #[test]
+    fn sm83_scf() {
+        run_json_test("37.json");
     }
 
     #[test]
