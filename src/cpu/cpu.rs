@@ -553,6 +553,7 @@ impl CPU {
             Op::RL(r) => self.handle_rl(r),
             Op::RRC(r) => self.handle_rrc(r),
             Op::RR(r) => self.handle_rr(r),
+            Op::DAA => self.handle_daa(),
             _ => todo!("op {:?}", op),
         }
         Ok(())
@@ -1211,40 +1212,28 @@ impl CPU {
         self.reset_flag(Flag::H);
     }
 
-    fn daa(&mut self) {
+    fn handle_daa(&mut self) {
         let a = self.a.val();
+        let mut result: u8 = a;
         if self.flag(Flag::N) {
-            let mut adj: u8 = 0;
             if self.flag(Flag::H) {
-                adj = adj.wrapping_add(0x6);
+                result = result.wrapping_sub(0x6);
             }
             if self.flag(Flag::C) {
-                adj = adj.wrapping_add(0x60);
-            }
-            let result = a.wrapping_sub(adj);
-            self.a.write(result);
-
-            self.reset_flag(Flag::H);
-            if result == 0 {
-                self.set_flag(Flag::Z);
+                result = result.wrapping_sub(0x60);
             }
         } else {
-            let mut adj: u8 = 0;
             if self.flag(Flag::H) || (a & 0xF) > 0x9 {
-                adj = adj.wrapping_add(0x6);
+                result = result.wrapping_add(0x6);
             }
             if self.flag(Flag::C) || a > 0x99 {
-                adj = adj.wrapping_add(0x60);
+                result = result.wrapping_add(0x60);
                 self.set_flag(Flag::C);
             }
-            let result = a.wrapping_add(adj);
-            self.a.write(result);
-
-            self.reset_flag(Flag::H);
-            if result == 0 {
-                self.set_flag(Flag::Z);
-            }
         }
+        self.a.write(result);
+        self.set_flag_from_val(Flag::Z, (result == 0) as u8);
+        self.reset_flag(Flag::H);
     }
 
     fn cpl(&mut self) {
@@ -1815,6 +1804,11 @@ mod test {
     #[test]
     fn sm83_rla() {
         run_json_test("17.json");
+    }
+
+    #[test]
+    fn sm83_daa() {
+        run_json_test("27.json");
     }
 
     #[test]
