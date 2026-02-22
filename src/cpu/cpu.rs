@@ -549,7 +549,8 @@ impl CPU {
             Op::Assert(r) => self.handle_assert(r),
             Op::Inc(i) => self.handle_inc(i),
             Op::Dec(d) => self.handle_dec(d),
-            //_ => todo!("op {:?}", op),
+            Op::RLCA(r) => self.handle_rlc(r),
+            _ => todo!("op {:?}", op),
         }
         Ok(())
     }
@@ -947,6 +948,7 @@ impl CPU {
         match r {
             instr::Register::NN => Ok(self.ir.n16()),
             instr::Register::N => Ok(self.ir.n8() as u16),
+            instr::Register::A => Ok(self.a.val() as u16),
             _ => todo!("source register {:?}", r),
         }
     }
@@ -964,8 +966,9 @@ impl CPU {
     }
 
     fn jp(&mut self, r: R16) {
-        let addr = self.src_r16(r);
-        self.pc = addr;
+        todo!("jp")
+        //let addr = self.src_r16(r);
+        //self.pc = addr;
     }
 
     fn jp_cond(&mut self, c: Cond, r: R16) -> bool {
@@ -1036,116 +1039,12 @@ impl CPU {
         //self.mem.write_word(sp, v);
     }
 
-    fn push_r16(&mut self, r: R16) {
-        let val = self.src_r16(r);
-        self.push(val);
-    }
-
     fn cc(&self, c: Cond) -> bool {
         match c {
             Cond::Z => self.flag(Flag::Z),
             Cond::NZ => !self.flag(Flag::Z),
             Cond::C => self.flag(Flag::C),
             Cond::NC => !self.flag(Flag::C),
-        }
-    }
-
-    fn ld(&mut self, op: LD) -> Result<(), ()> {
-        todo!("rework or trash");
-        //match op {
-        //    LD::R8(a, b) => {
-        //        let v = self.src_r8(b);
-        //        self.ld_r8(a, v);
-        //    }
-        //    LD::R16(a, b) => {
-        //        let v = self.src_r16(b);
-        //        self.ld_r16(a, v);
-        //    }
-        //    LD::MemR8(m, r) => {
-        //        let addr = self.mem_addr(m);
-        //        let v = self.src_r8(r);
-        //        self.mem.write(addr, v);
-        //    }
-        //    LD::MemR16(m, r) => {
-        //        let addr = self.mem_addr(m);
-        //        let v = self.src_r16(r);
-        //        self.mem.write_word(addr, v);
-        //    }
-        //    LD::R8Mem(r, m) => {
-        //        let addr = self.mem_addr(m);
-        //        let v = self.mem.read(addr);
-        //        self.ld_r8(r, v);
-        //    }
-        //    LD::HLSPN => self.ld_hl_sp_n(),
-        //}
-        Ok(())
-    }
-
-    pub fn ld_r16(&mut self, r: R16, v: u16) {
-        match r {
-            R16::HL => self.hl().write(v),
-            R16::BC => self.bc().write(v),
-            R16::DE => self.de().write(v),
-            R16::SP => self.sp = v,
-            R16::AF => self.af().write(v),
-            R16::N16 => panic!("attempt to load to n16 value"),
-
-            _ => panic!("attempt to write {:b} to {}", v, r),
-        }
-    }
-
-    pub fn ld_r8(&mut self, r: R8, v: u8) {
-        todo!("rework or trash");
-        //match r {
-        //    R8::A => self.a.write(v),
-        //    R8::B => self.b.write(v),
-        //    R8::C => self.c.write(v),
-        //    R8::D => self.d.write(v),
-        //    R8::E => self.e.write(v),
-        //    R8::H => self.h.write(v),
-        //    R8::L => self.l.write(v),
-        //    R8::HL => {
-        //        let addr = self.hl().val();
-        //        self.mem.write(addr, v);
-        //    }
-        //    R8::N8 => panic!("attempt to load to n8 value"),
-        //}
-    }
-
-    pub fn src_r8(&mut self, r: R8) -> u8 {
-        todo!("rework or trash");
-        //match r {
-        //    R8::N8 => self.imm(),
-        //    R8::A => self.a.val(),
-        //    R8::B => self.b.val(),
-        //    R8::C => self.c.val(),
-        //    R8::D => self.d.val(),
-        //    R8::E => self.e.val(),
-        //    R8::H => self.h.val(),
-        //    R8::L => self.l.val(),
-        //    R8::HL => {
-        //        let addr = self.hl().val();
-        //        return self.mem.read(addr);
-        //    }
-        //}
-    }
-
-    pub fn src_r16(&mut self, r: R16) -> u16 {
-        match r {
-            R16::HL => self.hl().val(),
-            R16::BC => self.bc().val(),
-            R16::DE => self.de().val(),
-            R16::PC => self.pc,
-            R16::SP => self.sp,
-            R16::AF => self.af().val(),
-            R16::N16 => self.fetch_word(),
-        }
-    }
-
-    fn inc(&mut self, i: INC) {
-        match i {
-            INC::R8(r) => self.inc_r8(r),
-            INC::R16(r) => self.inc_r16(r),
         }
     }
 
@@ -1252,62 +1151,64 @@ impl CPU {
         }
     }
 
-    fn rlc(&mut self, r: R8) {
-        let val = self.src_r8(r);
+    fn handle_rlc(&mut self, r: instr::Register) {
+        let val = self.src_register(r).unwrap() as u8;
         let b7 = bit::get(val, 7);
         self.set_flag_from_val(Flag::C, b7);
-        let result = (val << 1).wrapping_add(b7);
-        self.ld_r8(r, result);
-
-        if r == R8::A || result == 0 {
-            self.set_flag(Flag::Z);
+        let result = (val << 1) + b7;
+        self.load_register(r, result as u16).unwrap();
+        if r == instr::Register::A || result == 0 {
+            self.reset_flag(Flag::Z);
         }
         self.reset_flag(Flag::N);
         self.reset_flag(Flag::H);
     }
 
     fn rrc(&mut self, r: R8) {
-        let val = self.src_r8(r);
-        let b0 = bit::get(val, 0);
-        self.set_flag_from_val(Flag::C, b0);
-        let result = (val >> 1).wrapping_add(b0 << 7);
-        self.ld_r8(r, result);
+        todo!("rrc");
+        //let val = self.src_r8(r);
+        //let b0 = bit::get(val, 0);
+        //self.set_flag_from_val(Flag::C, b0);
+        //let result = (val >> 1).wrapping_add(b0 << 7);
+        //self.ld_r8(r, result);
 
-        if r == R8::A || result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
+        //if r == R8::A || result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.reset_flag(Flag::H);
     }
 
     fn rl(&mut self, r: R8) {
-        let val = self.src_r8(r);
-        let cf = self.cf() as u8;
-        let b7 = bit::get(val, 7);
-        self.set_flag_from_val(Flag::C, b7);
-        let result = (val << 1).wrapping_add(cf);
-        self.ld_r8(r, result);
+        todo!("rrc")
+        //let val = self.src_r8(r);
+        //let cf = self.cf() as u8;
+        //let b7 = bit::get(val, 7);
+        //self.set_flag_from_val(Flag::C, b7);
+        //let result = (val << 1).wrapping_add(cf);
+        //self.ld_r8(r, result);
 
-        if r == R8::A || result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
+        //if r == R8::A || result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.reset_flag(Flag::H);
     }
 
     fn rr(&mut self, r: R8) {
-        let val = self.src_r8(r);
-        let cf = self.cf() as u8;
-        let b0 = bit::get(val, 0);
-        self.set_flag_from_val(Flag::C, b0);
-        let result = (val >> 1).wrapping_add(cf << 7);
-        self.ld_r8(r, result);
+        todo!("rr")
+        //let val = self.src_r8(r);
+        //let cf = self.cf() as u8;
+        //let b0 = bit::get(val, 0);
+        //self.set_flag_from_val(Flag::C, b0);
+        //let result = (val >> 1).wrapping_add(cf << 7);
+        //self.ld_r8(r, result);
 
-        if r == R8::A || result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
+        //if r == R8::A || result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.reset_flag(Flag::H);
     }
 
     fn daa(&mut self) {
@@ -1377,36 +1278,38 @@ impl CPU {
     }
 
     fn add_r8(&mut self, r: R8) {
-        let a = self.a.val();
-        let val = self.src_r8(r);
-        let result = a.wrapping_add(val);
-        self.a.write(result);
+        todo!("add_r8")
+        //let a = self.a.val();
+        //let val = self.src_r8(r);
+        //let result = a.wrapping_add(val);
+        //self.a.write(result);
 
-        if result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        if bit::check_overflow(a, val, 3) {
-            self.set_flag(Flag::H);
-        }
-        if bit::check_overflow(a, val, 7) {
-            self.set_flag(Flag::C);
-        }
+        //if result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //if bit::check_overflow(a, val, 3) {
+        //    self.set_flag(Flag::H);
+        //}
+        //if bit::check_overflow(a, val, 7) {
+        //    self.set_flag(Flag::C);
+        //}
     }
 
     fn add_r16(&mut self, r: R16) {
-        let hl = self.hl().val();
-        let val = self.src_r16(r);
-        let result = hl.wrapping_add(val);
-        self.hl().write(result);
+        todo!("add_r16")
+        //let hl = self.hl().val();
+        //let val = self.src_r16(r);
+        //let result = hl.wrapping_add(val);
+        //self.hl().write(result);
 
-        self.reset_flag(Flag::N);
-        if bit::check_overflow_word(hl, val, 11) {
-            self.set_flag(Flag::H);
-        }
-        if bit::check_overflow_word(hl, val, 15) {
-            self.set_flag(Flag::C);
-        }
+        //self.reset_flag(Flag::N);
+        //if bit::check_overflow_word(hl, val, 11) {
+        //    self.set_flag(Flag::H);
+        //}
+        //if bit::check_overflow_word(hl, val, 15) {
+        //    self.set_flag(Flag::C);
+        //}
     }
 
     //fn add_sp(&mut self) {
@@ -1427,118 +1330,125 @@ impl CPU {
 
     // ADC
     fn adc(&mut self, b: R8) {
-        let a = self.a.val();
-        let cf = self.cf() as u8;
-        let val = self.src_r8(b);
+        todo!("adc")
+        //let a = self.a.val();
+        //let cf = self.cf() as u8;
+        //let val = self.src_r8(b);
 
-        let result = a.wrapping_add(val.wrapping_add(cf));
-        self.a.write(result);
-        if result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        if bit::check_overflow(a, val.wrapping_add(cf), 3) {
-            self.set_flag(Flag::H);
-        }
-        if bit::check_overflow(a, val.wrapping_add(cf), 7) {
-            self.set_flag(Flag::C);
-        }
+        //let result = a.wrapping_add(val.wrapping_add(cf));
+        //self.a.write(result);
+        //if result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //if bit::check_overflow(a, val.wrapping_add(cf), 3) {
+        //    self.set_flag(Flag::H);
+        //}
+        //if bit::check_overflow(a, val.wrapping_add(cf), 7) {
+        //    self.set_flag(Flag::C);
+        //}
     }
 
     fn sub(&mut self, r: R8) {
-        let a = self.a.val();
-        let val = self.src_r8(r);
-        let result = a.wrapping_sub(val);
-        self.a.write(result);
+        todo!("sub")
+        //let a = self.a.val();
+        //let val = self.src_r8(r);
+        //let result = a.wrapping_sub(val);
+        //self.a.write(result);
 
-        if result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.set_flag(Flag::N);
-        if bit::check_borrow(a, val, 4) {
-            self.set_flag(Flag::H);
-        }
-        if bit::check_borrow(a, val, 8) {
-            self.set_flag(Flag::C);
-        }
+        //if result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.set_flag(Flag::N);
+        //if bit::check_borrow(a, val, 4) {
+        //    self.set_flag(Flag::H);
+        //}
+        //if bit::check_borrow(a, val, 8) {
+        //    self.set_flag(Flag::C);
+        //}
     }
 
     fn sbc(&mut self, r: R8) {
-        let a = self.a.val();
-        let cf = self.cf() as u8;
-        let val = self.src_r8(r);
-        let result = a.wrapping_sub(val.wrapping_add(cf));
-        self.a.write(result);
+        todo!("sbc")
+        //let a = self.a.val();
+        //let cf = self.cf() as u8;
+        //let val = self.src_r8(r);
+        //let result = a.wrapping_sub(val.wrapping_add(cf));
+        //self.a.write(result);
 
-        if result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.set_flag(Flag::N);
-        if bit::check_borrow(a, val.wrapping_add(cf), 4) {
-            self.set_flag(Flag::H);
-        }
-        if bit::check_borrow(a, val.wrapping_add(cf), 8) {
-            self.set_flag(Flag::C);
-        }
+        //if result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.set_flag(Flag::N);
+        //if bit::check_borrow(a, val.wrapping_add(cf), 4) {
+        //    self.set_flag(Flag::H);
+        //}
+        //if bit::check_borrow(a, val.wrapping_add(cf), 8) {
+        //    self.set_flag(Flag::C);
+        //}
     }
 
     fn and(&mut self, r: R8) {
-        let a = self.a.val();
-        let val = self.src_r8(r);
-        let result = a & val;
-        self.a.write(result);
+        todo!("and")
+        //let a = self.a.val();
+        //let val = self.src_r8(r);
+        //let result = a & val;
+        //self.a.write(result);
 
-        if result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.set_flag(Flag::H);
-        self.reset_flag(Flag::C);
+        //if result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.set_flag(Flag::H);
+        //self.reset_flag(Flag::C);
     }
 
     fn xor(&mut self, r: R8) {
-        let a = self.a.val();
-        let val = self.src_r8(r);
-        let result = a ^ val;
-        self.a.write(result);
+        todo!("and")
+        //let a = self.a.val();
+        //let val = self.src_r8(r);
+        //let result = a ^ val;
+        //self.a.write(result);
 
-        if result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
-        self.reset_flag(Flag::C);
+        //if result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.reset_flag(Flag::H);
+        //self.reset_flag(Flag::C);
     }
 
     fn or(&mut self, r: R8) {
-        let a = self.a.val();
-        let val = self.src_r8(r);
-        let result = a | val;
-        self.a.write(result);
+        todo!("or")
+        //let a = self.a.val();
+        //let val = self.src_r8(r);
+        //let result = a | val;
+        //self.a.write(result);
 
-        if result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
-        self.reset_flag(Flag::C);
+        //if result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.reset_flag(Flag::H);
+        //self.reset_flag(Flag::C);
     }
 
     fn cp(&mut self, r: R8) {
-        let a = self.a.val();
-        let val = self.src_r8(r);
-        let result = a.wrapping_sub(val);
+        todo!("cp")
+        //let a = self.a.val();
+        //let val = self.src_r8(r);
+        //let result = a.wrapping_sub(val);
 
-        if result == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.set_flag(Flag::N);
-        if bit::check_borrow(a, val, 4) {
-            self.set_flag(Flag::H);
-        }
-        if bit::check_borrow(a, val, 8) {
-            self.set_flag(Flag::C);
-        }
+        //if result == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.set_flag(Flag::N);
+        //if bit::check_borrow(a, val, 4) {
+        //    self.set_flag(Flag::H);
+        //}
+        //if bit::check_borrow(a, val, 8) {
+        //    self.set_flag(Flag::C);
+        //}
     }
 
     fn ldh_a(&mut self, m: instr::Mem) {
@@ -1585,84 +1495,91 @@ impl CPU {
     //}
 
     fn sla(&mut self, r: R8) {
-        let v = self.src_r8(r);
-        let v7 = bit::get(v, 7);
-        self.set_flag_from_val(Flag::C, v7);
-        let v = v << 1;
-        if v == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
-        self.ld_r8(r, v);
+        todo!("sla")
+        //let v = self.src_r8(r);
+        //let v7 = bit::get(v, 7);
+        //self.set_flag_from_val(Flag::C, v7);
+        //let v = v << 1;
+        //if v == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.reset_flag(Flag::H);
+        //self.ld_r8(r, v);
     }
 
     fn sra(&mut self, r: R8) {
-        let v = self.src_r8(r);
-        let v0 = bit::get(v, 0);
-        let v7 = bit::get(v, 7) << 7;
+        todo!("sra")
+        //let v = self.src_r8(r);
+        //let v0 = bit::get(v, 0);
+        //let v7 = bit::get(v, 7) << 7;
 
-        self.set_flag_from_val(Flag::C, v0);
-        let v = v >> 1 | v7;
-        if v == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
-        self.ld_r8(r, v);
+        //self.set_flag_from_val(Flag::C, v0);
+        //let v = v >> 1 | v7;
+        //if v == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.reset_flag(Flag::H);
+        //self.ld_r8(r, v);
     }
 
     fn swap(&mut self, r: R8) {
-        let v = self.src_r8(r);
-        let l = (v & 0b1111) << 4;
-        let h = (v & 0b1111_0000) >> 4;
-        let v = l | h;
-        self.ld_r8(r, v);
-        if v == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
-        self.reset_flag(Flag::C);
+        todo!("swap")
+        //let v = self.src_r8(r);
+        //let l = (v & 0b1111) << 4;
+        //let h = (v & 0b1111_0000) >> 4;
+        //let v = l | h;
+        //self.ld_r8(r, v);
+        //if v == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.reset_flag(Flag::H);
+        //self.reset_flag(Flag::C);
     }
 
     fn srl(&mut self, r: R8) {
-        let v = self.src_r8(r);
-        let v0 = bit::get(v, 0);
-        self.set_flag_from_val(Flag::C, v0);
-        let v = v >> 1;
+        todo!("srl")
+        //let v = self.src_r8(r);
+        //let v0 = bit::get(v, 0);
+        //self.set_flag_from_val(Flag::C, v0);
+        //let v = v >> 1;
 
-        if v == 0 {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.reset_flag(Flag::H);
-        self.ld_r8(r, v);
+        //if v == 0 {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.reset_flag(Flag::H);
+        //self.ld_r8(r, v);
     }
 
     fn bit(&mut self, b: B3, r: R8) {
-        let val = self.src_r8(r);
-        let i = b.val();
+        todo!("bit")
+        //let val = self.src_r8(r);
+        //let i = b.val();
 
-        if bit::is_set(val, i) {
-            self.set_flag(Flag::Z);
-        }
-        self.reset_flag(Flag::N);
-        self.set_flag(Flag::H);
+        //if bit::is_set(val, i) {
+        //    self.set_flag(Flag::Z);
+        //}
+        //self.reset_flag(Flag::N);
+        //self.set_flag(Flag::H);
     }
 
     fn res(&mut self, b: B3, r: R8) {
-        let mut val = self.src_r8(r);
-        let i = b.val();
-        bit::reset(&mut val, i);
-        self.ld_r8(r, val);
+        todo!("bit")
+        //let mut val = self.src_r8(r);
+        //let i = b.val();
+        //bit::reset(&mut val, i);
+        //self.ld_r8(r, val);
     }
 
     fn set(&mut self, b: B3, r: R8) {
-        let mut val = self.src_r8(r);
-        let i = b.val();
-        bit::set(&mut val, i);
-        self.ld_r8(r, val);
+        todo!("set")
+        //let mut val = self.src_r8(r);
+        //let i = b.val();
+        //bit::set(&mut val, i);
+        //self.ld_r8(r, val);
     }
 
     fn query_interrupt(&mut self) -> Option<Interrupt> {
@@ -1888,6 +1805,11 @@ mod test {
         run_json_test("2e.json");
         // LD A, n
         run_json_test("3e.json");
+    }
+
+    #[test]
+    fn sm83_rlca() {
+        run_json_test("07.json");
     }
 
     //#[test]
