@@ -145,6 +145,7 @@ impl Instruction {
             0x3F => Instruction::ccf(),
             0x08 => Instruction::ld_nnm_sp(),
             0x18 => Instruction::jr(),
+            0x20 | 0x30 | 0x28 | 0x38 => Instruction::jr_cc(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -408,10 +409,32 @@ impl Instruction {
     fn jr() -> Instruction {
         Instruction {
             cycles: (12, 0),
-            len: 3,
+            len: 2,
             steps: vec![
                 Step::with_ops(vec![Op::Fetch(Fetch::E)]),
                 Step::with_ops(vec![Op::Add(Add::Register(Register::PC, Register::NE))]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn jr_cc(opcode: u8) -> Instruction {
+        let cond = match opcode {
+            0x20 => Cond::NZ,
+            0x30 => Cond::NC,
+            0x28 => Cond::Z,
+            0x38 => Cond::C,
+            _ => panic!("invalid opcode {}", opcode),
+        };
+        Instruction {
+            cycles: (8, 12),
+            len: 2,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::E)]),
+                Step::with_ops(vec![
+                    Op::CheckCond(cond),
+                    Op::Add(Add::Register(Register::PC, Register::NE)),
+                ]),
             ],
             ..Default::default()
         }
@@ -712,6 +735,7 @@ pub enum Op {
     SCF,
     CPL,
     CCF,
+    CheckCond(Cond),
 }
 
 #[derive(Debug, Clone, Copy)]

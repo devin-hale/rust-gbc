@@ -87,6 +87,14 @@ struct CycleState {
     m: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Flag {
+    Z,
+    N,
+    H,
+    C,
+}
+
 #[derive(Debug, Deserialize)]
 struct Test {
     name: String,
@@ -211,14 +219,6 @@ impl<'de> de::Deserialize<'de> for CycleState {
         let visitor = CycleStateVisitor;
         deserializer.deserialize_seq(visitor)
     }
-}
-
-#[derive(Clone, Copy)]
-pub enum Flag {
-    Z,
-    N,
-    H,
-    C,
 }
 
 #[derive(Clone, Copy)]
@@ -536,6 +536,11 @@ impl CPU {
         } else {
             for op in ex {
                 self.execute_op(op)?;
+                if let Op::CheckCond(_) = op
+                    && self.ir.done()
+                {
+                    return Ok(());
+                }
             }
         }
 
@@ -559,6 +564,7 @@ impl CPU {
             Op::SCF => self.handle_scf(),
             Op::CPL => self.handle_cpl(),
             Op::CCF => self.handle_ccf(),
+            Op::CheckCond(c) => self.handle_check_cond(c),
             _ => todo!("op {:?}", op),
         }
         Ok(())
@@ -1050,18 +1056,7 @@ impl CPU {
             return false;
         }
     }
-
-    fn jr_cond(&mut self, c: Cond, b: u8) -> bool {
-        todo!("jr cond");
-        //if self.cc(c) {
-        //    self.handle_jr(b);
-        //    return true;
-        //} else {
-        //    self.fetch();
-        //    return false;
-        //}
-    }
-
+    
     fn jr_word(&mut self, w: u16) {
         self.pc = self.pc.wrapping_add(w);
     }
@@ -1112,6 +1107,13 @@ impl CPU {
             Cond::NZ => !self.flag(Flag::Z),
             Cond::C => self.flag(Flag::C),
             Cond::NC => !self.flag(Flag::C),
+        }
+    }
+
+    fn handle_check_cond(&mut self, c: Cond) {
+        let cond = self.cc(c);
+        if !cond {
+            self.ir.complete();
         }
     }
 
@@ -1865,6 +1867,18 @@ mod test {
     #[test]
     fn sm83_jr() {
         run_json_test("18.json");
+    }
+
+    #[test]
+    fn sm83_jr_cc() {
+        // JR NZ
+        run_json_test("20.json");
+        // JR NC
+        run_json_test("30.json");
+        // JR Z
+        run_json_test("28.json");
+        // JR C
+        run_json_test("38.json");
     }
 
     //#[test]
