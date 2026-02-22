@@ -102,6 +102,14 @@ impl Instruction {
         (high << 8) | low
     }
 
+    pub fn n16_lo(&self) -> u8 {
+        self.n16_lo.unwrap()
+    }
+
+    pub fn n16_hi(&self) -> u8 {
+        self.n16_hi.unwrap()
+    }
+
     pub fn n8(&self) -> u8 {
         self.n8.unwrap()
     }
@@ -126,6 +134,7 @@ impl Instruction {
             0x1F => Instruction::rra(),
             0x2F => Instruction::cpl(),
             0x3F => Instruction::ccf(),
+            0x08 => Instruction::ld_nnm_sp(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -175,6 +184,24 @@ impl Instruction {
                 Op::Assert(r),
                 Op::Load(Load::Memory(Register::A)),
             ])],
+            ..Default::default()
+        }
+    }
+
+    fn ld_nnm_sp() -> Instruction {
+        let r = Register::SP;
+        Instruction {
+            cycles: (20, 0),
+            len: 3,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::NnLo)]),
+                Step::with_ops(vec![Op::Fetch(Fetch::NnHi)]),
+                Step::with_ops(vec![Op::Assert(Register::NN), Op::Load(Load::MemoryLo(r))]),
+                Step::with_ops(vec![
+                    Op::AssertInc(Register::NN),
+                    Op::Load(Load::MemoryHi(r)),
+                ]),
+            ],
             ..Default::default()
         }
     }
@@ -649,6 +676,7 @@ impl Step {
 pub enum Op {
     Fetch(Fetch),
     Assert(Register),
+    AssertInc(Register),
     Load(Load),
     Inc(Inc),
     Dec(Dec),
@@ -685,6 +713,8 @@ pub enum Inc {
 pub enum Load {
     Register(Register, Register),
     Memory(Register),
+    MemoryLo(Register),
+    MemoryHi(Register),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -707,6 +737,8 @@ pub enum Register {
     PC,
     N,
     NN,
+    NnLo,
+    NnHi,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

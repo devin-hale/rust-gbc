@@ -547,6 +547,7 @@ impl CPU {
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
+            Op::AssertInc(r) => self.handle_assert_inc(r),
             Op::Inc(i) => self.handle_inc(i),
             Op::Dec(d) => self.handle_dec(d),
             Op::RLC(r) => self.handle_rlc(r),
@@ -904,7 +905,28 @@ impl CPU {
                 let val = self.hl().val();
                 self.addr_bus.assert(val);
             }
+            instr::Register::NN => {
+                let val = self.ir.n16();
+                self.addr_bus.assert(val);
+            }
+            instr::Register::SP => {
+                self.addr_bus.assert(self.sp);
+            }
             _ => todo!("assert register {:?}", r),
+        }
+    }
+
+    fn handle_assert_inc(&mut self, r: instr::Register) {
+        match r {
+            instr::Register::NN => {
+                let val = self.ir.n16().wrapping_add(1);
+                self.addr_bus.assert(val);
+            }
+            instr::Register::SP => {
+                let val = self.sp.wrapping_add(1);
+                self.addr_bus.assert(val);
+            }
+            _ => todo!("assert inc register {:?}", r),
         }
     }
 
@@ -914,7 +936,10 @@ impl CPU {
                 let val = self.src_register(src)?;
                 self.load_register(dst, val)?;
             }
-            Load::Memory(src) => self.load_memory(src), //_ => todo!("load {:?}", l),
+            Load::Memory(src) => self.load_memory(src),
+            Load::MemoryLo(src) => self.load_memory_lo(src),
+            Load::MemoryHi(src) => self.load_memory_hi(src),
+            //_ => todo!("load {:?}", l),
         }
         Ok(())
     }
@@ -945,6 +970,36 @@ impl CPU {
             }
             instr::Register::N => {
                 self.data_bus.assert(self.ir.n8());
+                self.data_bus.write();
+            }
+            instr::Register::NnLo => {
+                self.data_bus.assert(self.ir.n16_lo());
+                self.data_bus.write();
+            }
+            instr::Register::NnHi => {
+                self.data_bus.assert(self.ir.n16_hi());
+                self.data_bus.write();
+            }
+            _ => todo!("register {:?}", src),
+        }
+    }
+
+    fn load_memory_lo(&mut self, src: instr::Register) {
+        match src {
+            instr::Register::SP => {
+                let val = (self.sp & 0xFF) as u8;
+                self.data_bus.assert(val);
+                self.data_bus.write();
+            }
+            _ => todo!("register {:?}", src),
+        }
+    }
+
+    fn load_memory_hi(&mut self, src: instr::Register) {
+        match src {
+            instr::Register::SP => {
+                let val = (self.sp >> 8) as u8;
+                self.data_bus.assert(val);
                 self.data_bus.write();
             }
             _ => todo!("register {:?}", src),
@@ -1837,6 +1892,11 @@ mod test {
     #[test]
     fn sm83_ccf() {
         run_json_test("3f.json");
+    }
+
+    #[test]
+    fn sm83_ld_nnm_sp() {
+        run_json_test("08.json");
     }
 
     //#[test]
