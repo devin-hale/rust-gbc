@@ -129,6 +129,7 @@ impl Instruction {
         match opcode {
             // NOP
             0x00 => Instruction::nop(),
+            0x10 => Instruction::stop(),
             0x01 | 0x11 | 0x21 | 0x31 => Instruction::ld_rr_nn(opcode),
             0x02 | 0x12 | 0x22 | 0x32 => Instruction::ld_rrm_nn(opcode),
             0x03 | 0x13 | 0x23 | 0x33 => Instruction::inc_rr(opcode),
@@ -154,6 +155,14 @@ impl Instruction {
         Instruction {
             opcode: 0,
             steps: vec![Step::with_ops(vec![])],
+            ..Default::default()
+        }
+    }
+
+    pub fn stop() -> Instruction {
+        Instruction {
+            opcode: 0,
+            steps: vec![Step::with_ops(vec![Op::Stop])],
             ..Default::default()
         }
     }
@@ -731,11 +740,12 @@ pub enum Op {
     RL(Register),
     RRC(Register),
     RR(Register),
+    CheckCond(Cond),
+    Stop,
     DAA,
     SCF,
     CPL,
     CCF,
-    CheckCond(Cond),
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -49,7 +49,7 @@ pub struct CPU {
     data_bus: DataBus,
 
     ir: Instruction,
-    //stop: bool,
+    stop: bool,
     //halt: bool,
 
     //prefix: bool,
@@ -347,7 +347,7 @@ impl CPU {
             data_bus: mem.data_bus(memory::Accessor::CPU),
             ir: Instruction::nop(),
             //prefix: false,
-            //stop: false,
+            stop: false,
             //halt: false,
             //ic_0: None,
             //ic_1: None,
@@ -549,6 +549,7 @@ impl CPU {
 
     fn execute_op(&mut self, op: Op) -> Result<(), Error> {
         match op {
+            Op::Stop => self.handle_stop(),
             Op::Add(a) => self.handle_add(a),
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
@@ -1029,7 +1030,14 @@ impl CPU {
         }
     }
 
+    fn handle_stop(&mut self) {
+        self.stop = true;
+    }
+
     pub fn tick(&mut self) -> Result<(), Error> {
+        if self.stop {
+            return Ok(());
+        }
         self.execute()?;
         if self.ir.done() {
             let opcode = self.fetch();
@@ -1720,6 +1728,11 @@ mod test {
     fn sm83_nop() {
         // NOP
         run_json_test("00.json");
+    }
+
+    #[test]
+    fn sm83_stop() {
+        run_json_test("10.json");
     }
 
     #[test]
