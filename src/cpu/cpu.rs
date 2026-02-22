@@ -1891,21 +1891,6 @@ mod test {
     }
 
     //#[test]
-    //fn fetch_word() {
-    //    let mem = Memory::arc();
-    //    let mut cpu = CPU::new(&mem);
-    //    let pc = cpu.pc;
-    //    let low = 0xCC;
-    //    let high = 0xDD;
-    //    let word = 0xDDCC;
-    //    mem.lock().unwrap().write(pc, low);
-    //    mem.lock().unwrap().write(pc + 1, high);
-    //    let fetched = cpu.fetch_word();
-    //    assert_eq!(word, fetched);
-    //    assert_eq!(cpu.pc, pc + 2);
-    //}
-
-    //#[test]
     //fn jump_relative() {
     //    let mem = Arc::new(Mutex::new(Memory::new()));
     //    let mut cpu = CPU::new(&mem);
@@ -1936,97 +1921,97 @@ mod test {
     //    assert_eq!(cpu.af().val(), expected);
     //}
 
-    //#[test]
-    //fn flag_set() {
-    //    let mem = Arc::new(Mutex::new(Memory::new()));
-    //    let mut cpu = CPU::new(&mem);
-    //    cpu.set_flag(Flag::N);
-    //    assert!(cpu.nf());
-    //}
+    #[test]
+    fn flag_set() {
+        let mem = Memory::new();
+        let mut cpu = CPU::new(&mem);
+        cpu.set_flag(Flag::N);
+        assert!(cpu.nf());
+    }
 
-    //#[test]
-    //fn flag_reset() {
-    //    let mem = Arc::new(Mutex::new(Memory::new()));
-    //    let mut cpu = CPU::new(&mem);
-    //    cpu.set_flag(Flag::N);
-    //    assert!(cpu.nf());
-    //    cpu.reset_flag(Flag::N);
-    //    assert!(!cpu.nf());
-    //}
+    #[test]
+    fn flag_reset() {
+        let mem = Memory::new();
+        let mut cpu = CPU::new(&mem);
+        cpu.set_flag(Flag::N);
+        assert!(cpu.nf());
+        cpu.reset_flag(Flag::N);
+        assert!(!cpu.nf());
+    }
 
-    //#[test]
-    //fn flag() {
-    //    let mem = Memory::arc();
-    //    let mut cpu = CPU::new(&mem);
-    //    assert!(!cpu.flag(Flag::N));
-    //    cpu.set_flag(Flag::N);
-    //    assert!(cpu.flag(Flag::N));
-    //}
+    #[test]
+    fn flag() {
+        let mem = Memory::new();
+        let mut cpu = CPU::new(&mem);
+        assert!(!cpu.flag(Flag::N));
+        cpu.set_flag(Flag::N);
+        assert!(cpu.flag(Flag::N));
+    }
 
-    //#[test]
-    //fn flag_set_val() {
-    //    let mem = Arc::new(Mutex::new(Memory::new()));
-    //    let mut cpu = CPU::new(&mem);
-    //    let f = Flag::C;
-    //    cpu.set_flag_from_val(f, 1);
-    //    assert!(cpu.cf());
-    //    cpu.set_flag_from_val(f, 0);
-    //    assert!(!cpu.cf());
-    //}
+    #[test]
+    fn flag_set_val() {
+        let mem = Memory::new();
+        let mut cpu = CPU::new(&mem);
+        let f = Flag::C;
+        cpu.set_flag_from_val(f, 1);
+        assert!(cpu.cf());
+        cpu.set_flag_from_val(f, 0);
+        assert!(!cpu.cf());
+    }
 
-    //#[test]
-    //fn cc() {
-    //    let mem = Memory::arc();
-    //    let mut cpu = CPU::new(&mem);
-    //    assert!(cpu.cc(Cond::Z));
-    //    assert!(cpu.cc(Cond::NC));
-    //    cpu.reset_flag(Flag::Z);
-    //    cpu.set_flag(Flag::C);
-    //    assert!(cpu.cc(Cond::NZ));
-    //    assert!(cpu.cc(Cond::C));
-    //}
+    #[test]
+    fn cc() {
+        let mem = Memory::new();
+        let mut cpu = CPU::new(&mem);
+        assert!(cpu.cc(Cond::Z));
+        assert!(cpu.cc(Cond::NC));
+        cpu.reset_flag(Flag::Z);
+        cpu.set_flag(Flag::C);
+        assert!(cpu.cc(Cond::NZ));
+        assert!(cpu.cc(Cond::C));
+    }
 
-    //#[test]
-    //fn register() {
-    //    let byte = 0xFE;
-    //    let mut r: Register = byte.into();
-    //    assert_eq!(byte, r.val());
-    //    assert_eq!(r.0, r.val());
+    #[test]
+    fn register() {
+        let byte = 0xFE;
+        let mut r: Register = byte.into();
+        assert_eq!(byte, r.val());
+        assert_eq!(r.0, r.val());
 
-    //    let byte = 0xF2;
-    //    r.write(byte);
-    //    assert_eq!(byte, r.val());
-    //}
+        let byte = 0xF2;
+        r.write(byte);
+        assert_eq!(byte, r.val());
+    }
 
-    //#[test]
-    //fn word_register() {
-    //    let low_val = 0xFE;
-    //    let high_val = 0xFE;
-    //    let mut l: Register = low_val.into();
-    //    let mut h: Register = high_val.into();
+    #[test]
+    fn word_register() {
+        let low_val = 0xFE;
+        let high_val = 0xFE;
+        let mut l: Register = low_val.into();
+        let mut h: Register = high_val.into();
 
-    //    let mut expected_word = ((high_val as u16) << 8) | (low_val as u16);
+        let mut expected_word = ((high_val as u16) << 8) | (low_val as u16);
 
-    //    let mut w = Word::new(&mut h, &mut l);
-    //    assert_eq!(expected_word, w.val());
+        let mut w = Word::new(&mut h, &mut l);
+        assert_eq!(expected_word, w.val());
 
-    //    expected_word = expected_word.wrapping_add(1);
-    //    w.inc();
-    //    assert_eq!(expected_word, w.val());
+        expected_word = expected_word.wrapping_add(1);
+        w.inc();
+        assert_eq!(expected_word, w.val());
 
-    //    expected_word -= 1;
-    //    w.dec();
-    //    assert_eq!(expected_word, w.val());
+        expected_word -= 1;
+        w.dec();
+        assert_eq!(expected_word, w.val());
 
-    //    let low_val = 0xCC;
-    //    let high_val = 0xDD;
-    //    expected_word = ((high_val as u16) << 8) | (low_val as u16);
+        let low_val = 0xCC;
+        let high_val = 0xDD;
+        expected_word = ((high_val as u16) << 8) | (low_val as u16);
 
-    //    w.write(expected_word);
-    //    assert_eq!(expected_word, w.val());
-    //    assert_eq!(l.0, low_val);
-    //    assert_eq!(h.0, high_val);
-    //}
+        w.write(expected_word);
+        assert_eq!(expected_word, w.val());
+        assert_eq!(l.0, low_val);
+        assert_eq!(h.0, high_val);
+    }
 
     #[test]
     fn deserialize_cycle_state() {
