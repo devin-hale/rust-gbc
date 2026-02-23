@@ -14,8 +14,18 @@ pub fn get_u16(word: u16, n: u8) -> u16 {
 }
 
 #[inline(always)]
+pub fn get_u32(word: u32, n: u8) -> u32 {
+    (word >> n) & 1
+}
+
+#[inline(always)]
 pub fn is_set_u16(word: u16, n: u8) -> bool {
     get_u16(word, n) == 1
+}
+
+#[inline(always)]
+pub fn is_set_u32(word: u32, n: u8) -> bool {
+    get_u32(word, n) == 1
 }
 
 #[inline(always)]
@@ -51,6 +61,22 @@ fn fill_to_word(n: u16) -> u16 {
         word = word << 1;
     }
     word
+}
+
+#[inline(always)]
+pub fn check_carry(a: u8, b: u8) -> bool {
+    let a = a as u16;
+    let b = b as u16;
+    let result = a + b;
+    is_set_u16(result, 8)
+}
+
+#[inline(always)]
+pub fn check_carry_word(a: u16, b: u16) -> bool {
+    let a = a as u32;
+    let b = b as u32;
+    let result = a + b;
+    is_set_u32(result, 16)
 }
 
 #[inline(always)]

@@ -1026,6 +1026,10 @@ impl CPU {
             instr::Register::NE => Ok(self.ir.e() as u16),
             instr::Register::A => Ok(self.a.val() as u16),
             instr::Register::PC => Ok(self.pc),
+            instr::Register::BC => Ok(self.bc().val()),
+            instr::Register::DE => Ok(self.de().val()),
+            instr::Register::SP => Ok(self.sp),
+            instr::Register::HL => Ok(self.hl().val()),
             _ => todo!("source register {:?}", r),
         }
     }
@@ -1064,7 +1068,7 @@ impl CPU {
             return false;
         }
     }
-    
+
     fn jr_word(&mut self, w: u16) {
         self.pc = self.pc.wrapping_add(w);
     }
@@ -1344,8 +1348,43 @@ impl CPU {
         } else {
             let b = self.src_register(r2).unwrap();
             result = a.wrapping_add(b);
+            if self.check_half_carry(r1, r2) {
+                self.set_flag(Flag::H);
+            } else {
+                self.reset_flag(Flag::H);
+            }
+            if self.check_carry(r1, r2) {
+                self.set_flag(Flag::C);
+            } else {
+                self.reset_flag(Flag::C);
+            }
+            self.reset_flag(Flag::N);
         }
         self.load_register(r1, result).unwrap();
+    }
+
+    fn check_carry(&mut self, a: instr::Register, b: instr::Register) -> bool {
+        if a.is_byte() && b.is_byte() {
+            let a_val = self.src_register(a).unwrap() as u8;
+            let b_val = self.src_register(b).unwrap() as u8;
+            return bit::check_carry(a_val, b_val);
+        } else {
+            let a_val = self.src_register(a).unwrap();
+            let b_val = self.src_register(b).unwrap();
+            return bit::check_carry_word(a_val, b_val);
+        }
+    }
+
+    fn check_half_carry(&mut self, a: instr::Register, b: instr::Register) -> bool {
+        if a.is_byte() && b.is_byte() {
+            let a_val = self.src_register(a).unwrap() as u8;
+            let b_val = self.src_register(b).unwrap() as u8;
+            return bit::check_hc(a_val, b_val);
+        } else {
+            let a_val = self.src_register(a).unwrap();
+            let b_val = self.src_register(b).unwrap();
+            return bit::check_hc_word(a_val, b_val);
+        }
     }
 
     // ADC
@@ -1892,6 +1931,18 @@ mod test {
         run_json_test("28.json");
         // JR C
         run_json_test("38.json");
+    }
+
+    #[test]
+    fn sm83_add_hl_rr() {
+        // add HL, BC
+        run_json_test("09.json");
+        // add HL, DE
+        run_json_test("19.json");
+        // add HL, HL
+        run_json_test("29.json");
+        // add HL, SP
+        run_json_test("39.json");
     }
 
     //#[test]

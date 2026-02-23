@@ -136,6 +136,7 @@ impl Instruction {
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => Instruction::inc_r(opcode),
             0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => Instruction::dec_r(opcode),
             0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => Instruction::ld_r_n(opcode),
+            0x09 | 0x19 | 0x29 | 0x39 => Instruction::add_hl_rr(opcode),
             0x07 => Instruction::rlca(),
             0x17 => Instruction::rla(),
             0x27 => Instruction::daa(),
@@ -445,6 +446,25 @@ impl Instruction {
                     Op::Add(Add::Register(Register::PC, Register::NE)),
                 ]),
             ],
+            ..Default::default()
+        }
+    }
+
+    fn add_hl_rr(opcode: u8) -> Instruction {
+        let r = match opcode {
+            0x09 => Register::BC,
+            0x19 => Register::DE,
+            0x29 => Register::HL,
+            0x39 => Register::SP,
+            _ => panic!("invalid opcode {}", opcode),
+        };
+        Instruction {
+            cycles: (8, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![Op::Add(Add::Register(
+                Register::HL,
+                r,
+            ))])],
             ..Default::default()
         }
     }
@@ -760,6 +780,8 @@ pub enum Fetch {
 pub enum Add {
     Memory(Register, Register),
     Register(Register, Register),
+    RegisterLo(Register, Register),
+    RegisterHi(Register, Register),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -805,6 +827,33 @@ pub enum Register {
     NnLo,
     NnHi,
     NE,
+}
+
+impl Register {
+    pub fn is_byte(&self) -> bool {
+        match self {
+            Self::A
+            | Self::B
+            | Self::C
+            | Self::D
+            | Self::E
+            | Self::F
+            | Self::H
+            | Self::L
+            | Self::N
+            | Self::NE
+            | Self::NnLo
+            | Self::NnHi => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_word(&self) -> bool {
+        match self {
+            Self::BC | Self::HL | Self::DE | Self::AF | Self::SP | Self::PC | Self::NN => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
