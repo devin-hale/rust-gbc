@@ -1690,8 +1690,8 @@ mod test {
         (cpu, mem)
     }
 
-    fn load_test(file_name: &'static str) -> Vec<Test> {
-        let path = String::from("./test_files/v1/") + file_name;
+    fn load_test(file_name: String) -> Vec<Test> {
+        let path = String::from("./test_files/v1/") + file_name.as_str();
         let raw = fs::read_to_string(path).unwrap();
         serde_json::from_str(raw.as_str()).unwrap()
     }
@@ -1721,7 +1721,7 @@ mod test {
         //}
     }
 
-    fn run_json_test(test: &'static str) {
+    fn run_json_test(test: String) {
         let tests = load_test(test);
         for test in tests {
             println!("sm83 {}", test.name);
@@ -1764,185 +1764,194 @@ mod test {
     }
 
     #[test]
-    fn sm83_nop() {
+    fn test_nop() {
         // NOP
-        run_json_test("00.json");
+        run_json_test(String::from("00.json"));
     }
 
     #[test]
-    fn sm83_stop() {
-        run_json_test("10.json");
+    fn test_stop() {
+        run_json_test(String::from("10.json"));
     }
 
     #[test]
-    fn sm83_ld_r16_nn() {
+    fn test_ld_r16_nn() {
         // LD BC, n16
-        run_json_test("01.json");
+        run_json_test(String::from("01.json"));
         // LD DE, n16
-        run_json_test("11.json");
+        run_json_test(String::from("11.json"));
         // LD HL, n16
-        run_json_test("21.json");
+        run_json_test(String::from("21.json"));
         // LD SP, n16
-        run_json_test("31.json");
+        run_json_test(String::from("31.json"));
     }
 
     #[test]
-    fn sm83_ld_r16mem_a() {
+    fn test_ld_r16mem_a() {
         // LD (BC), A
-        run_json_test("02.json");
+        run_json_test(String::from("02.json"));
         // LD (DE), A
-        run_json_test("12.json");
+        run_json_test(String::from("12.json"));
         // LD (HL+), A
-        run_json_test("22.json");
+        run_json_test(String::from("22.json"));
         // LD (HL-), A
-        run_json_test("32.json");
+        run_json_test(String::from("32.json"));
     }
 
     #[test]
-    fn sm83_inc_r16() {
+    fn test_inc_r16() {
         // INC BC
-        run_json_test("03.json");
+        run_json_test(String::from("03.json"));
         // INC DE
-        run_json_test("13.json");
+        run_json_test(String::from("13.json"));
         // INC HL
-        run_json_test("23.json");
+        run_json_test(String::from("23.json"));
         // INC SP
-        run_json_test("33.json");
+        run_json_test(String::from("33.json"));
     }
 
     #[test]
-    fn sm83_inc_r() {
+    fn test_inc_r() {
         // INC B
-        run_json_test("04.json");
+        run_json_test(String::from("04.json"));
         // INC D
-        run_json_test("14.json");
+        run_json_test(String::from("14.json"));
         // INC H
-        run_json_test("24.json");
+        run_json_test(String::from("24.json"));
         // INC (HL)
-        run_json_test("34.json");
+        run_json_test(String::from("34.json"));
         // INC C
-        run_json_test("0c.json");
+        run_json_test(String::from("0c.json"));
         // INC E
-        run_json_test("1c.json");
+        run_json_test(String::from("1c.json"));
         // INC L
-        run_json_test("2c.json");
+        run_json_test(String::from("2c.json"));
         // INC A
-        run_json_test("3c.json");
+        run_json_test(String::from("3c.json"));
     }
 
     #[test]
-    fn sm83_dec_r() {
+    fn test_dec_r() {
         // DEC B
-        run_json_test("05.json");
+        run_json_test(String::from("05.json"));
         // DEC D
-        run_json_test("15.json");
+        run_json_test(String::from("15.json"));
         // DEC H
-        run_json_test("25.json");
+        run_json_test(String::from("25.json"));
         // DEC (HL)
-        run_json_test("35.json");
+        run_json_test(String::from("35.json"));
         // DEC C
-        run_json_test("0d.json");
+        run_json_test(String::from("0d.json"));
         // DEC E
-        run_json_test("1d.json");
+        run_json_test(String::from("1d.json"));
         // DEC L
-        run_json_test("2d.json");
+        run_json_test(String::from("2d.json"));
         // DEC A
-        run_json_test("3d.json");
+        run_json_test(String::from("3d.json"));
     }
 
     #[test]
-    fn sm83_ld_r8_n() {
+    fn test_ld_r8_n() {
         // LD B, n
-        run_json_test("06.json");
+        run_json_test(String::from("06.json"));
         // LD D, n
-        run_json_test("16.json");
+        run_json_test(String::from("16.json"));
         // LD H, n
-        run_json_test("26.json");
+        run_json_test(String::from("26.json"));
         // LD (HL), n
-        run_json_test("36.json");
+        run_json_test(String::from("36.json"));
 
         // LD C, n
-        run_json_test("0e.json");
+        run_json_test(String::from("0e.json"));
         // LD E, n
-        run_json_test("1e.json");
+        run_json_test(String::from("1e.json"));
         // LD L, n
-        run_json_test("2e.json");
+        run_json_test(String::from("2e.json"));
         // LD A, n
-        run_json_test("3e.json");
+        run_json_test(String::from("3e.json"));
     }
 
     #[test]
-    fn sm83_rlca() {
-        run_json_test("07.json");
+    fn test_rlca() {
+        run_json_test(String::from("07.json"));
     }
 
     #[test]
-    fn sm83_rla() {
-        run_json_test("17.json");
+    fn test_rla() {
+        run_json_test(String::from("17.json"));
     }
 
     #[test]
-    fn sm83_daa() {
-        run_json_test("27.json");
+    fn test_daa() {
+        run_json_test(String::from("27.json"));
     }
 
     #[test]
-    fn sm83_scf() {
-        run_json_test("37.json");
+    fn test_scf() {
+        run_json_test(String::from("37.json"));
     }
 
     #[test]
-    fn sm83_rrca() {
-        run_json_test("0f.json");
+    fn test_rrca() {
+        run_json_test(String::from("0f.json"));
     }
 
     #[test]
-    fn sm83_rra() {
-        run_json_test("1f.json");
+    fn test_rra() {
+        run_json_test(String::from("1f.json"));
     }
 
     #[test]
-    fn sm83_cpl() {
-        run_json_test("2f.json");
+    fn test_cpl() {
+        run_json_test(String::from("2f.json"));
     }
 
     #[test]
-    fn sm83_ccf() {
-        run_json_test("3f.json");
+    fn test_ccf() {
+        run_json_test(String::from("3f.json"));
     }
 
     #[test]
-    fn sm83_ld_nnm_sp() {
-        run_json_test("08.json");
+    fn test_ld_nnm_sp() {
+        run_json_test(String::from("08.json"));
     }
 
     #[test]
-    fn sm83_jr() {
-        run_json_test("18.json");
+    fn test_jr() {
+        run_json_test(String::from("18.json"));
     }
 
     #[test]
-    fn sm83_jr_cc() {
+    fn test_jr_cc() {
         // JR NZ
-        run_json_test("20.json");
+        run_json_test(String::from("20.json"));
         // JR NC
-        run_json_test("30.json");
+        run_json_test(String::from("30.json"));
         // JR Z
-        run_json_test("28.json");
+        run_json_test(String::from("28.json"));
         // JR C
-        run_json_test("38.json");
+        run_json_test(String::from("38.json"));
     }
 
     #[test]
-    fn sm83_add_hl_rr() {
+    fn test_add_hl_rr() {
         // add HL, BC
-        run_json_test("09.json");
+        run_json_test(String::from("09.json"));
         // add HL, DE
-        run_json_test("19.json");
+        run_json_test(String::from("19.json"));
         // add HL, HL
-        run_json_test("29.json");
+        run_json_test(String::from("29.json"));
         // add HL, SP
-        run_json_test("39.json");
+        run_json_test(String::from("39.json"));
+    }
+
+    #[test]
+    fn test_ld_r_r() {
+        // ld B, R
+        //for i in 0..=7 {
+        //    let file = format!("4{}.json", i);
+        //    run_json_test(file);
+        //}
     }
 
     //#[test]
