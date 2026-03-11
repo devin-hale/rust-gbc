@@ -1025,11 +1025,18 @@ impl CPU {
             instr::Register::N => Ok(self.ir.n8() as u16),
             instr::Register::NE => Ok(self.ir.e() as u16),
             instr::Register::A => Ok(self.a.val() as u16),
+            instr::Register::B => Ok(self.b.val() as u16),
+            instr::Register::C => Ok(self.c.val() as u16),
+            instr::Register::D => Ok(self.d.val() as u16),
+            instr::Register::E => Ok(self.e.val() as u16),
+            instr::Register::H => Ok(self.h.val() as u16),
+            instr::Register::L => Ok(self.l.val() as u16),
             instr::Register::PC => Ok(self.pc),
             instr::Register::BC => Ok(self.bc().val()),
             instr::Register::DE => Ok(self.de().val()),
             instr::Register::SP => Ok(self.sp),
             instr::Register::HL => Ok(self.hl().val()),
+            instr::Register::Memory => Ok(self.data_bus.read() as u16),
             _ => todo!("source register {:?}", r),
         }
     }
@@ -1947,11 +1954,23 @@ mod test {
 
     #[test]
     fn test_ld_r_r() {
-        // ld B, R
-        //for i in 0..=7 {
-        //    let file = format!("4{}.json", i);
-        //    run_json_test(file);
-        //}
+        // ld B/C, R
+        for i in 0x0..=0xF {
+            let file = format!("4{:x}.json", i);
+            run_json_test(file);
+        }
+
+        // ld D/E, R
+        for i in 0x0..=0xF {
+            let file = format!("5{:x}.json", i);
+            run_json_test(file);
+        }
+
+        // ld H/L, R
+        for i in 0x0..=0xF {
+            let file = format!("6{:x}.json", i);
+            run_json_test(file);
+        }
     }
 
     //#[test]

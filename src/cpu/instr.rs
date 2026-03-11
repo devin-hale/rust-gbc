@@ -148,6 +148,7 @@ impl Instruction {
             0x08 => Instruction::ld_nnm_sp(),
             0x18 => Instruction::jr(),
             0x20 | 0x30 | 0x28 | 0x38 => Instruction::jr_cc(opcode),
+            0x40..=0x6F => Instruction::ld_r_r(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -187,6 +188,49 @@ impl Instruction {
                 ]),
             ],
             ..Default::default()
+        }
+    }
+
+    fn ld_r_r(opcode: u8) -> Instruction {
+        let dest = match opcode {
+            0x40..=0x47 => Register::B,
+            0x48..=0x4F => Register::C,
+            0x50..=0x57 => Register::D,
+            0x58..=0x5F => Register::E,
+            0x60..=0x67 => Register::H,
+            0x68..=0x6F => Register::L,
+            _ => panic!("invalid opcode"),
+        };
+        let src = match opcode & 0xF {
+            0x0 | 0x8 => Register::B,
+            0x1 | 0x9 => Register::C,
+            0x2 | 0xA => Register::D,
+            0x3 | 0xB => Register::E,
+            0x4 | 0xC => Register::H,
+            0x5 | 0xD => Register::L,
+            0x6 | 0xE => Register::HL,
+            0x7 | 0xF => Register::A,
+            _ => panic!("invalid opcode"),
+        };
+
+        if src == Register::HL {
+            Instruction {
+                cycles: (4, 0),
+                len: 1,
+                steps: vec![Step::with_ops(vec![
+                    Op::Assert(src),
+                    Op::Load(Load::Register(dest, Register::Memory)),
+                ])],
+                ..Default::default()
+            }
+        } else {
+            Instruction {
+                cycles: (4, 0),
+                len: 1,
+                eager: true,
+                steps: vec![Step::with_ops(vec![Op::Load(Load::Register(dest, src))])],
+                ..Default::default()
+            }
         }
     }
 
@@ -827,6 +871,7 @@ pub enum Register {
     NnLo,
     NnHi,
     NE,
+    Memory,
 }
 
 impl Register {
