@@ -962,6 +962,7 @@ impl CPU {
     }
 
     fn load_register(&mut self, dst: instr::Register, val: u16) -> Result<(), Error> {
+        dbg!(dst);
         match dst {
             instr::Register::BC => self.bc().write(val),
             instr::Register::DE => self.de().write(val),
@@ -1397,9 +1398,24 @@ impl CPU {
             } else {
                 self.reset_flag(Flag::C);
             }
+            if r1 != instr::Register::HL {
+                if self.check_zero(r1, r2, result) {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+            }
             self.reset_flag(Flag::N);
         }
         self.load_register(r1, result).unwrap();
+    }
+
+    fn check_zero(&mut self, a: instr::Register, b: instr::Register, result: u16) -> bool {
+        if a.is_byte() && b.is_byte() {
+            return (result as u8) == 0;
+        } else {
+            return result == 0;
+        }
     }
 
     fn check_carry(&mut self, a: instr::Register, b: instr::Register) -> bool {
@@ -2021,6 +2037,15 @@ mod test {
         // ld A, R
         for i in 0x8..=0xF {
             let file = format!("7{:x}.json", i);
+            run_json_test(file);
+        }
+    }
+
+    #[test]
+    fn test_add_a_r() {
+        // ld A, R
+        for i in 0x0..=0x7 {
+            let file = format!("8{:x}.json", i);
             run_json_test(file);
         }
     }

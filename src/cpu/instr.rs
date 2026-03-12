@@ -150,6 +150,7 @@ impl Instruction {
             0x20 | 0x30 | 0x28 | 0x38 => Instruction::jr_cc(opcode),
             0x40..=0x75 | 0x77..=0x7F => Instruction::ld_r_r(opcode),
             0x76 => Instruction::halt(),
+            0x80..=0x87 => Instruction::add_r_r(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -530,6 +531,41 @@ impl Instruction {
             ..Default::default()
         }
     }
+
+    fn add_r_r(opcode: u8) -> Instruction {
+        let dest = Register::A;
+        let src = match opcode & 0xF {
+            0x0 | 0x8 => Register::B,
+            0x1 | 0x9 => Register::C,
+            0x2 | 0xA => Register::D,
+            0x3 | 0xB => Register::E,
+            0x4 | 0xC => Register::H,
+            0x5 | 0xD => Register::L,
+            0x6 | 0xE => Register::HL,
+            0x7 | 0xF => Register::A,
+            _ => panic!("invalid opcode {}", opcode),
+        };
+
+        if src == Register::HL {
+            Instruction {
+                cycles: (8, 0),
+                len: 1,
+                steps: vec![Step::with_ops(vec![
+                    Op::Assert(src),
+                    Op::Add(Add::Register(dest, Register::Memory)),
+                ])],
+                ..Default::default()
+            }
+        } else {
+            Instruction {
+                cycles: (4, 0),
+                len: 1,
+                eager: true,
+                steps: vec![Step::with_ops(vec![Op::Add(Add::Register(dest, src))])],
+                ..Default::default()
+            }
+        }
+    }
 }
 
 impl Default for Instruction {
@@ -907,7 +943,8 @@ impl Register {
             | Self::N
             | Self::NE
             | Self::NnLo
-            | Self::NnHi => true,
+            | Self::NnHi
+            | Self::Memory => true,
             _ => false,
         }
     }
