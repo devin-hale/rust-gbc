@@ -981,6 +981,30 @@ impl CPU {
                 self.data_bus.assert(self.a.0);
                 self.data_bus.write();
             }
+            instr::Register::B => {
+                self.data_bus.assert(self.b.0);
+                self.data_bus.write();
+            }
+            instr::Register::C => {
+                self.data_bus.assert(self.c.0);
+                self.data_bus.write();
+            }
+            instr::Register::D => {
+                self.data_bus.assert(self.d.0);
+                self.data_bus.write();
+            }
+            instr::Register::E => {
+                self.data_bus.assert(self.e.0);
+                self.data_bus.write();
+            }
+            instr::Register::H => {
+                self.data_bus.assert(self.h.0);
+                self.data_bus.write();
+            }
+            instr::Register::L => {
+                self.data_bus.assert(self.l.0);
+                self.data_bus.write();
+            }
             instr::Register::N => {
                 self.data_bus.assert(self.ir.n8());
                 self.data_bus.write();
@@ -1969,6 +1993,21 @@ mod test {
         // ld H/L, R
         for i in 0x0..=0xF {
             let file = format!("6{:x}.json", i);
+            run_json_test(file);
+        }
+
+        // ld (HL), R
+        for i in 0x0..=0x7 {
+            if i == 0x6 {
+                continue;
+            }
+            let file = format!("7{:x}.json", i);
+            run_json_test(file);
+        }
+
+        // ld A, R
+        for i in 0x8..=0xF {
+            let file = format!("7{:x}.json", i);
             run_json_test(file);
         }
     }

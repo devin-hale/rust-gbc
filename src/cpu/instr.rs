@@ -148,7 +148,7 @@ impl Instruction {
             0x08 => Instruction::ld_nnm_sp(),
             0x18 => Instruction::jr(),
             0x20 | 0x30 | 0x28 | 0x38 => Instruction::jr_cc(opcode),
-            0x40..=0x6F => Instruction::ld_r_r(opcode),
+            0x40..=0x75 | 0x77..=0x7F => Instruction::ld_r_r(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -199,6 +199,8 @@ impl Instruction {
             0x58..=0x5F => Register::E,
             0x60..=0x67 => Register::H,
             0x68..=0x6F => Register::L,
+            0x70..=0x75 | 0x77 => Register::HL,
+            0x78..=0x7F => Register::A,
             _ => panic!("invalid opcode"),
         };
         let src = match opcode & 0xF {
@@ -215,11 +217,21 @@ impl Instruction {
 
         if src == Register::HL {
             Instruction {
-                cycles: (4, 0),
+                cycles: (8, 0),
                 len: 1,
                 steps: vec![Step::with_ops(vec![
                     Op::Assert(src),
                     Op::Load(Load::Register(dest, Register::Memory)),
+                ])],
+                ..Default::default()
+            }
+        } else if dest == Register::HL {
+            Instruction {
+                cycles: (8, 0),
+                len: 1,
+                steps: vec![Step::with_ops(vec![
+                    Op::Assert(dest),
+                    Op::Load(Load::Memory(src)),
                 ])],
                 ..Default::default()
             }
