@@ -50,7 +50,7 @@ pub struct CPU {
 
     ir: Instruction,
     stop: bool,
-    //halt: bool,
+    halt: bool,
 
     //prefix: bool,
     //ic_0: Option<InterruptControl>,
@@ -348,7 +348,7 @@ impl CPU {
             ir: Instruction::nop(),
             //prefix: false,
             stop: false,
-            //halt: false,
+            halt: false,
             //ic_0: None,
             //ic_1: None,
             ie: false,
@@ -550,6 +550,7 @@ impl CPU {
     fn execute_op(&mut self, op: Op) -> Result<(), Error> {
         match op {
             Op::Stop => self.handle_stop(),
+            Op::Halt => self.handle_halt(),
             Op::Add(a) => self.handle_add(a),
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
@@ -591,6 +592,10 @@ impl CPU {
             }
         }
         Ok(())
+    }
+
+    fn handle_halt(&mut self) {
+        self.halt = true;
     }
 
     fn handle_inc(&mut self, i: Inc) {
@@ -1071,6 +1076,9 @@ impl CPU {
 
     pub fn tick(&mut self) -> Result<(), Error> {
         if self.stop {
+            return Ok(());
+        }
+        if self.halt {
             return Ok(());
         }
         self.execute()?;
@@ -1803,6 +1811,11 @@ mod test {
     #[test]
     fn test_stop() {
         run_json_test(String::from("10.json"));
+    }
+
+    #[test]
+    fn test_halt() {
+        run_json_test(String::from("76.json"));
     }
 
     #[test]

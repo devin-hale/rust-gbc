@@ -149,13 +149,13 @@ impl Instruction {
             0x18 => Instruction::jr(),
             0x20 | 0x30 | 0x28 | 0x38 => Instruction::jr_cc(opcode),
             0x40..=0x75 | 0x77..=0x7F => Instruction::ld_r_r(opcode),
+            0x76 => Instruction::halt(),
             _ => todo!("opcode {}", opcode),
         }
     }
 
     pub fn nop() -> Instruction {
         Instruction {
-            opcode: 0,
             steps: vec![Step::with_ops(vec![])],
             ..Default::default()
         }
@@ -163,8 +163,14 @@ impl Instruction {
 
     pub fn stop() -> Instruction {
         Instruction {
-            opcode: 0,
             steps: vec![Step::with_ops(vec![Op::Stop])],
+            ..Default::default()
+        }
+    }
+
+    pub fn halt() -> Instruction {
+        Instruction {
+            steps: vec![Step::with_ops(vec![Op::Halt])],
             ..Default::default()
         }
     }
@@ -818,6 +824,7 @@ pub enum Op {
     RR(Register),
     CheckCond(Cond),
     Stop,
+    Halt,
     DAA,
     SCF,
     CPL,
