@@ -153,6 +153,7 @@ impl Instruction {
             0x80..=0x87 => Instruction::add_r_r(opcode),
             0x88..=0x8F => Instruction::adc_a_r(opcode),
             0x90..=0x97 => Instruction::sub_a_r(opcode),
+            0x98..=0x9F => Instruction::sbc_a_r(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -638,6 +639,41 @@ impl Instruction {
             }
         }
     }
+
+    fn sbc_a_r(opcode: u8) -> Instruction {
+        let dest = Register::A;
+        let src = match opcode & 0xF {
+            0x0 | 0x8 => Register::B,
+            0x1 | 0x9 => Register::C,
+            0x2 | 0xA => Register::D,
+            0x3 | 0xB => Register::E,
+            0x4 | 0xC => Register::H,
+            0x5 | 0xD => Register::L,
+            0x6 | 0xE => Register::HL,
+            0x7 | 0xF => Register::A,
+            _ => panic!("invalid opcode {}", opcode),
+        };
+
+        if src == Register::HL {
+            Instruction {
+                cycles: (8, 0),
+                len: 1,
+                steps: vec![Step::with_ops(vec![
+                    Op::Assert(src),
+                    Op::SBC(SBC::Register(dest, Register::Memory)),
+                ])],
+                ..Default::default()
+            }
+        } else {
+            Instruction {
+                cycles: (4, 0),
+                len: 1,
+                eager: true,
+                steps: vec![Step::with_ops(vec![Op::SBC(SBC::Register(dest, src))])],
+                ..Default::default()
+            }
+        }
+    }
 }
 
 impl Default for Instruction {
@@ -922,6 +958,7 @@ pub enum Op {
     Add(Add),
     Sub(Sub),
     ADC(ADC),
+    SBC(SBC),
     Fetch(Fetch),
     Assert(Register),
     AssertInc(Register),
@@ -965,6 +1002,12 @@ pub enum Sub {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ADC {
+    Memory(Register, Register),
+    Register(Register, Register),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SBC {
     Memory(Register, Register),
     Register(Register, Register),
 }

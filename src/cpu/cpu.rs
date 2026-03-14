@@ -20,7 +20,8 @@ use thiserror::Error;
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, R8, R16, T3};
 use crate::{
     cpu::instr::{
-        ADC, Add, Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, Sub, decode, decode_prefix,
+        ADC, Add, Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, SBC, Sub, decode,
+        decode_prefix,
     },
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
@@ -556,6 +557,7 @@ impl CPU {
             Op::Add(a) => self.handle_add(a),
             Op::ADC(a) => self.handle_adc(a),
             Op::Sub(s) => self.handle_sub(s),
+            Op::SBC(s) => self.handle_sbc(s),
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
@@ -966,7 +968,6 @@ impl CPU {
     }
 
     fn load_register(&mut self, dst: instr::Register, val: u16) -> Result<(), Error> {
-        dbg!(dst);
         match dst {
             instr::Register::BC => self.bc().write(val),
             instr::Register::DE => self.de().write(val),
@@ -1396,6 +1397,12 @@ impl CPU {
             _ => todo!("sub {:?}", s),
         }
     }
+    fn handle_sbc(&mut self, s: SBC) {
+        match s {
+            SBC::Register(a, b) => self.handle_sbc_register(a, b),
+            _ => todo!("sub {:?}", s),
+        }
+    }
 
     fn handle_add_register(&mut self, r1: instr::Register, r2: instr::Register) {
         let a = self.src_register(r1).unwrap();
@@ -1492,8 +1499,38 @@ impl CPU {
             }
             self.set_flag(Flag::N);
         }
-        println!("0x{:0>8b} : {}", self.f.0, self.f.0);
-        println!("0x{:0>8b} : {}", 80, 80);
+        self.load_register(r1, result).unwrap();
+    }
+
+    fn handle_sbc_register(&mut self, r1: instr::Register, r2: instr::Register) {
+        let a = self.src_register(r1).unwrap();
+        let c = match self.cf() {
+            true => 1,
+            false => 0,
+        } as u16;
+        let result: u16;
+
+        let b = self.src_register(r2).unwrap();
+        result = a.wrapping_sub(b).wrapping_sub(c);
+        if self.check_half_carry_sbc(r1, r2, c) {
+            self.set_flag(Flag::H);
+        } else {
+            self.reset_flag(Flag::H);
+        }
+        if self.check_carry_sbc(r1, r2, c) {
+            self.set_flag(Flag::C);
+        } else {
+            self.reset_flag(Flag::C);
+        }
+        if r1 != instr::Register::HL {
+            if self.check_zero(r1, r2, result) {
+                self.set_flag(Flag::Z);
+            } else {
+                self.reset_flag(Flag::Z);
+            }
+        }
+        self.set_flag(Flag::N);
+
         self.load_register(r1, result).unwrap();
     }
     fn check_zero(&mut self, a: instr::Register, b: instr::Register, result: u16) -> bool {
@@ -1521,11 +1558,18 @@ impl CPU {
             let a_val = self.src_register(a).unwrap();
             let b_val = self.src_register(b).unwrap();
             return a_val.wrapping_add((!b_val as u8) as u16) < 0xff;
-        } else {
-            let a_val = self.src_register(a).unwrap() as u32;
-            let b_val = self.src_register(b).unwrap() as u32;
-            return a_val.wrapping_add((!b_val as u16) as u32) < 0xffff;
         }
+        panic!("sub not defined for 16 bit values");
+    }
+
+    fn check_carry_sbc(&mut self, a: instr::Register, b: instr::Register, c: u16) -> bool {
+        if a.is_byte() && b.is_byte() {
+            let a_val = self.src_register(a).unwrap();
+            let b_val = self.src_register(b).unwrap();
+            let res = a_val.wrapping_add((!b_val as u8) as u16);
+            return res < 0xff || res.wrapping_sub(c) < 0xff;
+        };
+        panic!("sbc not defined for 16 bit values");
     }
 
     fn check_carry_adc(&mut self, a: instr::Register, b: instr::Register, c: u16) -> bool {
@@ -1534,12 +1578,8 @@ impl CPU {
             let b_val = self.src_register(b).unwrap() as u8;
             let result = a_val.wrapping_add(b_val);
             return bit::check_carry(a_val, b_val) || bit::check_carry(result, c as u8);
-        } else {
-            let a_val = self.src_register(a).unwrap();
-            let b_val = self.src_register(b).unwrap();
-            let result = a_val.wrapping_add(b_val);
-            return bit::check_carry_word(a_val, b_val) || bit::check_carry_word(result, c);
         }
+        panic!("adc not defined for 16 bit values");
     }
 
     fn check_half_carry(&mut self, a: instr::Register, b: instr::Register) -> bool {
@@ -1563,6 +1603,22 @@ impl CPU {
             let a_val = self.src_register(a).unwrap();
             let b_val = self.src_register(b).unwrap();
             return (a_val & 0xff) + (!b_val & 0xff) < 0xff;
+        }
+    }
+
+    fn check_half_carry_sbc(&mut self, a: instr::Register, b: instr::Register, c: u16) -> bool {
+        if a.is_byte() && b.is_byte() {
+            let a_val = self.src_register(a).unwrap() as u8;
+            let b_val = self.src_register(b).unwrap() as u8;
+            let res_a = (a_val & 0xf) + (!b_val & 0xf);
+            return res_a < 0xf || res_a.wrapping_sub(c as u8) < 0xf;
+        } else {
+            let a_val = self.src_register(a).unwrap();
+            let b_val = self.src_register(b).unwrap();
+            return (a_val & 0xff)
+                .wrapping_add(!(b_val & 0xff))
+                .wrapping_add(!c & 0x1)
+                < 0xff;
         }
     }
 
@@ -1911,6 +1967,8 @@ mod test {
 
     fn cmp_cpu_state(cpu: &mut CPU, s: &State) {
         assert_eq!(s.a, cpu.a.0);
+        println!("0b{:0>8b} (expected)", s.f);
+        println!("0b{:0>8b} (actual)", cpu.f.0);
         assert_eq!(s.f, cpu.f.0);
         assert_eq!(s.b, cpu.b.0);
         assert_eq!(s.c, cpu.c.0);
@@ -2215,6 +2273,15 @@ mod test {
     fn test_sub_a_r() {
         // sub A, R
         for i in 0x0..=0x7 {
+            let file = format!("9{:x}.json", i);
+            run_json_test(file);
+        }
+    }
+
+    #[test]
+    fn test_sbc_a_r() {
+        // sbc A, R
+        for i in 0x8..=0xF {
             let file = format!("9{:x}.json", i);
             run_json_test(file);
         }
