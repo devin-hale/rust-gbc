@@ -20,7 +20,7 @@ use thiserror::Error;
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, R8, R16, T3};
 use crate::{
     cpu::instr::{
-        ADC, Add, Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, decode, decode_prefix,
+        ADC, Add, Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, Sub, decode, decode_prefix,
     },
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
@@ -555,6 +555,7 @@ impl CPU {
             Op::Halt => self.handle_halt(),
             Op::Add(a) => self.handle_add(a),
             Op::ADC(a) => self.handle_adc(a),
+            Op::Sub(s) => self.handle_sub(s),
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
@@ -1389,6 +1390,13 @@ impl CPU {
         }
     }
 
+    fn handle_sub(&mut self, s: Sub) {
+        match s {
+            Sub::Register(a, b) => self.handle_sub_register(a, b),
+            _ => todo!("sub {:?}", s),
+        }
+    }
+
     fn handle_add_register(&mut self, r1: instr::Register, r2: instr::Register) {
         let a = self.src_register(r1).unwrap();
         let result: u16;
@@ -1455,6 +1463,39 @@ impl CPU {
         self.load_register(r1, result).unwrap();
     }
 
+    fn handle_sub_register(&mut self, r1: instr::Register, r2: instr::Register) {
+        let a = self.src_register(r1).unwrap();
+        let result: u16;
+        println!("0x{:0>8b} : {}", self.f.0, self.f.0);
+        if r2 == instr::Register::NE {
+            let b = self.src_register(r2).unwrap() as i16;
+            result = (a as i16).wrapping_add(b) as u16;
+        } else {
+            let b = self.src_register(r2).unwrap();
+            result = a.wrapping_sub(b);
+            if self.check_half_carry_sub(r1, r2) {
+                self.set_flag(Flag::H);
+            } else {
+                self.reset_flag(Flag::H);
+            }
+            if self.check_carry_sub(r1, r2) {
+                self.set_flag(Flag::C);
+            } else {
+                self.reset_flag(Flag::C);
+            }
+            if r1 != instr::Register::HL {
+                if self.check_zero(r1, r2, result) {
+                    self.set_flag(Flag::Z);
+                } else {
+                    self.reset_flag(Flag::Z);
+                }
+            }
+            self.set_flag(Flag::N);
+        }
+        println!("0x{:0>8b} : {}", self.f.0, self.f.0);
+        println!("0x{:0>8b} : {}", 80, 80);
+        self.load_register(r1, result).unwrap();
+    }
     fn check_zero(&mut self, a: instr::Register, b: instr::Register, result: u16) -> bool {
         if a.is_byte() && b.is_byte() {
             return (result as u8) == 0;
@@ -1472,6 +1513,18 @@ impl CPU {
             let a_val = self.src_register(a).unwrap();
             let b_val = self.src_register(b).unwrap();
             return bit::check_carry_word(a_val, b_val);
+        }
+    }
+
+    fn check_carry_sub(&mut self, a: instr::Register, b: instr::Register) -> bool {
+        if a.is_byte() && b.is_byte() {
+            let a_val = self.src_register(a).unwrap();
+            let b_val = self.src_register(b).unwrap();
+            return a_val.wrapping_add((!b_val as u8) as u16) < 0xff;
+        } else {
+            let a_val = self.src_register(a).unwrap() as u32;
+            let b_val = self.src_register(b).unwrap() as u32;
+            return a_val.wrapping_add((!b_val as u16) as u32) < 0xffff;
         }
     }
 
@@ -1501,6 +1554,18 @@ impl CPU {
         }
     }
 
+    fn check_half_carry_sub(&mut self, a: instr::Register, b: instr::Register) -> bool {
+        if a.is_byte() && b.is_byte() {
+            let a_val = self.src_register(a).unwrap() as u8;
+            let b_val = self.src_register(b).unwrap() as u8;
+            return (a_val & 0xf) + (!b_val & 0xf) < 0xf;
+        } else {
+            let a_val = self.src_register(a).unwrap();
+            let b_val = self.src_register(b).unwrap();
+            return (a_val & 0xff) + (!b_val & 0xff) < 0xff;
+        }
+    }
+
     fn check_half_carry_adc(&mut self, a: instr::Register, b: instr::Register, c: u16) -> bool {
         if a.is_byte() && b.is_byte() {
             let a_val = self.src_register(a).unwrap() as u8;
@@ -1512,6 +1577,20 @@ impl CPU {
             let b_val = self.src_register(b).unwrap();
             let result = a_val.wrapping_add(b_val);
             return bit::check_hc_word(a_val, b_val) || bit::check_hc_word(result, c);
+        }
+    }
+
+    fn check_half_carry_adc_sub(&mut self, a: instr::Register, b: instr::Register, c: u16) -> bool {
+        if a.is_byte() && b.is_byte() {
+            let a_val = self.src_register(a).unwrap() as u8;
+            let b_val = self.src_register(b).unwrap() as u8;
+            let result = a_val.wrapping_add(b_val);
+            return bit::check_hc(a_val, !b_val) || bit::check_hc(result, c as u8);
+        } else {
+            let a_val = self.src_register(a).unwrap();
+            let b_val = self.src_register(b).unwrap();
+            let result = a_val.wrapping_add(b_val);
+            return bit::check_hc_word(a_val, !b_val) || bit::check_hc_word(result, c);
         }
     }
 
@@ -2128,6 +2207,15 @@ mod test {
         // adc A, R
         for i in 0x8..=0xF {
             let file = format!("8{:x}.json", i);
+            run_json_test(file);
+        }
+    }
+
+    #[test]
+    fn test_sub_a_r() {
+        // sub A, R
+        for i in 0x0..=0x7 {
+            let file = format!("9{:x}.json", i);
             run_json_test(file);
         }
     }
