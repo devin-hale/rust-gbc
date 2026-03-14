@@ -558,6 +558,7 @@ impl CPU {
             Op::ADC(a) => self.handle_adc(a),
             Op::Sub(s) => self.handle_sub(s),
             Op::SBC(s) => self.handle_sbc(s),
+            Op::AND(r) => self.handle_and(r),
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
@@ -1533,6 +1534,22 @@ impl CPU {
 
         self.load_register(r1, result).unwrap();
     }
+
+    fn handle_and(&mut self, r: instr::Register) {
+        let val = self.src_register(r).unwrap() as u8;
+        let result = self.a.0 & val;
+        if result == 0 {
+            self.set_flag(Flag::Z);
+        } else {
+            self.reset_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+        self.set_flag(Flag::H);
+        self.reset_flag(Flag::C);
+
+        self.a.write(result);
+    }
+
     fn check_zero(&mut self, a: instr::Register, b: instr::Register, result: u16) -> bool {
         if a.is_byte() && b.is_byte() {
             return (result as u8) == 0;
@@ -2283,6 +2300,15 @@ mod test {
         // sbc A, R
         for i in 0x8..=0xF {
             let file = format!("9{:x}.json", i);
+            run_json_test(file);
+        }
+    }
+
+    #[test]
+    fn test_and_a_r() {
+        // AND A, R
+        for i in 0x0..=0x7 {
+            let file = format!("a{:x}.json", i);
             run_json_test(file);
         }
     }
