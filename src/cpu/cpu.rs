@@ -560,6 +560,7 @@ impl CPU {
             Op::SBC(s) => self.handle_sbc(s),
             Op::AND(r) => self.handle_and(r),
             Op::XOR(r) => self.handle_xor(r),
+            Op::OR(r) => self.handle_or(r),
             Op::Fetch(f) => self.handle_fetch(f)?,
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
@@ -1566,6 +1567,21 @@ impl CPU {
         self.a.write(result);
     }
 
+    fn handle_or(&mut self, r: instr::Register) {
+        let val = self.src_register(r).unwrap() as u8;
+        let result = self.a.0 | val;
+        if result == 0 {
+            self.set_flag(Flag::Z);
+        } else {
+            self.reset_flag(Flag::Z);
+        }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+        self.reset_flag(Flag::C);
+
+        self.a.write(result);
+    }
+
     fn check_zero(&mut self, a: instr::Register, b: instr::Register, result: u16) -> bool {
         if a.is_byte() && b.is_byte() {
             return (result as u8) == 0;
@@ -2334,6 +2350,15 @@ mod test {
         // XOR A, R
         for i in 0x8..=0xF {
             let file = format!("a{:x}.json", i);
+            run_json_test(file);
+        }
+    }
+
+    #[test]
+    fn test_or_a_r() {
+        // OR A, R
+        for i in 0x0..=0x7 {
+            let file = format!("b{:x}.json", i);
             run_json_test(file);
         }
     }
