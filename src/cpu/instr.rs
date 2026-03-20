@@ -152,7 +152,7 @@ impl Instruction {
             0x76 => Instruction::halt(),
             0x80..=0x87 | 0xC6 => Instruction::add_r_r(opcode),
             0x88..=0x8F => Instruction::adc_a_r(opcode),
-            0x90..=0x97 => Instruction::sub_a_r(opcode),
+            0x90..=0x97 | 0xD6 => Instruction::sub_a_r(opcode),
             0x98..=0x9F => Instruction::sbc_a_r(opcode),
             0xA0..=0xA7 => Instruction::and(opcode),
             0xA8..=0xAF => Instruction::xor(opcode),
@@ -624,16 +624,19 @@ impl Instruction {
 
     fn sub_a_r(opcode: u8) -> Instruction {
         let dest = Register::A;
-        let src = match opcode & 0xF {
-            0x0 | 0x8 => Register::B,
-            0x1 | 0x9 => Register::C,
-            0x2 | 0xA => Register::D,
-            0x3 | 0xB => Register::E,
-            0x4 | 0xC => Register::H,
-            0x5 | 0xD => Register::L,
-            0x6 | 0xE => Register::HL,
-            0x7 | 0xF => Register::A,
-            _ => panic!("invalid opcode {}", opcode),
+        let src = match opcode {
+            0xD6 => Register::N,
+            _ => match opcode & 0xF {
+                0x0 | 0x8 => Register::B,
+                0x1 | 0x9 => Register::C,
+                0x2 | 0xA => Register::D,
+                0x3 | 0xB => Register::E,
+                0x4 | 0xC => Register::H,
+                0x5 | 0xD => Register::L,
+                0x6 | 0xE => Register::HL,
+                0x7 | 0xF => Register::A,
+                _ => panic!("invalid opcode {}", opcode),
+            },
         };
 
         if src == Register::HL {
@@ -643,6 +646,16 @@ impl Instruction {
                 steps: vec![Step::with_ops(vec![
                     Op::Assert(src),
                     Op::Sub(Sub::Register(dest, Register::Memory)),
+                ])],
+                ..Default::default()
+            }
+        } else if src == Register::N {
+            Instruction {
+                cycles: (8, 0),
+                len: 2,
+                steps: vec![Step::with_ops(vec![
+                    Op::Fetch(Fetch::N),
+                    Op::Sub(Sub::Register(dest, src)),
                 ])],
                 ..Default::default()
             }
