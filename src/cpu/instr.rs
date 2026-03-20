@@ -157,6 +157,7 @@ impl Instruction {
             0xA0..=0xA7 => Instruction::and(opcode),
             0xA8..=0xAF => Instruction::xor(opcode),
             0xB0..=0xB7 => Instruction::or(opcode),
+            0xB8..=0xBF => Instruction::cp(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -779,6 +780,40 @@ impl Instruction {
             }
         }
     }
+
+    fn cp(opcode: u8) -> Instruction {
+        let src = match opcode & 0xF {
+            0x0 | 0x8 => Register::B,
+            0x1 | 0x9 => Register::C,
+            0x2 | 0xA => Register::D,
+            0x3 | 0xB => Register::E,
+            0x4 | 0xC => Register::H,
+            0x5 | 0xD => Register::L,
+            0x6 | 0xE => Register::HL,
+            0x7 | 0xF => Register::A,
+            _ => panic!("invalid opcode {}", opcode),
+        };
+
+        if src == Register::HL {
+            Instruction {
+                cycles: (8, 0),
+                len: 1,
+                steps: vec![Step::with_ops(vec![
+                    Op::Assert(src),
+                    Op::CP(Register::Memory),
+                ])],
+                ..Default::default()
+            }
+        } else {
+            Instruction {
+                cycles: (4, 0),
+                len: 1,
+                eager: true,
+                steps: vec![Step::with_ops(vec![Op::CP(src)])],
+                ..Default::default()
+            }
+        }
+    }
 }
 
 impl Default for Instruction {
@@ -1067,6 +1102,7 @@ pub enum Op {
     AND(Register),
     XOR(Register),
     OR(Register),
+    CP(Register),
     Fetch(Fetch),
     Assert(Register),
     AssertInc(Register),
