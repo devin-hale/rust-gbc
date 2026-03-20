@@ -2329,6 +2329,8 @@ mod test {
             let file = format!("8{:x}.json", i);
             run_json_test(file);
         }
+        // add A, N
+        run_json_test(String::from("c6.json"));
     }
 
     #[test]
