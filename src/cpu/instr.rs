@@ -163,6 +163,7 @@ impl Instruction {
             0xFB => Instruction::enable_interrupts(),
             0xF3 => Instruction::disable_interrupts(),
             0xC9 => Instruction::ret(),
+            0xD9 => Instruction::reti(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -214,6 +215,26 @@ impl Instruction {
                 Step::with_ops(vec![
                     Op::AssertPostInc(Register::SP),
                     Op::Load(Load::Register(Register::NnHi, Register::Memory)),
+                ]),
+                Step::with_ops(vec![Op::Load(Load::Register(Register::PC, Register::NN))]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    pub fn reti() -> Instruction {
+        Instruction {
+            cycles: (16, 0),
+            len: 1,
+            steps: vec![
+                Step::with_ops(vec![
+                    Op::AssertPostInc(Register::SP),
+                    Op::Load(Load::Register(Register::NnLo, Register::Memory)),
+                ]),
+                Step::with_ops(vec![
+                    Op::AssertPostInc(Register::SP),
+                    Op::Load(Load::Register(Register::NnHi, Register::Memory)),
+                    Op::EI,
                 ]),
                 Step::with_ops(vec![Op::Load(Load::Register(Register::PC, Register::NN))]),
             ],
