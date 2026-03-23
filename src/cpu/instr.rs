@@ -170,6 +170,7 @@ impl Instruction {
             0xF0 => Instruction::ld_a_ffn(),
             0xE2 => Instruction::ld_ffc_a(),
             0xF2 => Instruction::ld_a_ffc(),
+            0xF9 => Instruction::ld_sp_hl(),
             0xC0 | 0xD0 | 0xC8 | 0xD8 => Instruction::ret_cc(opcode),
             0xC3 => Instruction::jp(),
             0xE9 => Instruction::jp_hl(),
@@ -820,6 +821,18 @@ impl Instruction {
             eager: true,
             steps: vec![Step::with_ops(vec![Op::Load(Load::Register(
                 Register::PC,
+                Register::HL,
+            ))])],
+            ..Default::default()
+        }
+    }
+
+    fn ld_sp_hl() -> Instruction {
+        Instruction {
+            cycles: (4, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![Op::Load(Load::Register(
+                Register::SP,
                 Register::HL,
             ))])],
             ..Default::default()

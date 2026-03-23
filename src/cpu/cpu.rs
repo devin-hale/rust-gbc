@@ -2444,6 +2444,11 @@ mod test {
     }
 
     #[test]
+    fn test_ld_sp_hl() {
+        run_json_test(String::from("f9.json"));
+    }
+
+    #[test]
     fn test_jp_cc() {
         run_json_test(String::from("c2.json"));
         run_json_test(String::from("d2.json"));
