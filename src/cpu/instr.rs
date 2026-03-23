@@ -173,6 +173,9 @@ impl Instruction {
             0xC0 | 0xD0 | 0xC8 | 0xD8 => Instruction::ret_cc(opcode),
             0xC3 => Instruction::jp(),
             0xC2 | 0xD2 | 0xCA | 0xDA => Instruction::jp_cc(opcode),
+            0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => {
+                panic!("invalid opcode {}", opcode)
+            }
             _ => todo!("opcode {}", opcode),
         }
     }

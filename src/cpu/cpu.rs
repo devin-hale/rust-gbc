@@ -2444,6 +2444,24 @@ mod test {
         run_json_test(String::from("da.json"));
     }
 
+    #[test]
+    #[should_panic]
+    fn test_invalid_op() {
+        run_json_test(String::from("d3.json"));
+        run_json_test(String::from("db.json"));
+        run_json_test(String::from("dd.json"));
+
+        run_json_test(String::from("e3.json"));
+        run_json_test(String::from("e4.json"));
+        run_json_test(String::from("eb.json"));
+        run_json_test(String::from("ec.json"));
+        run_json_test(String::from("ed.json"));
+
+        run_json_test(String::from("f4.json"));
+        run_json_test(String::from("fc.json"));
+        run_json_test(String::from("fd.json"));
+    }
+
     //#[test]
     //fn jump_relative() {
     //    let mem = Arc::new(Mutex::new(Memory::new()));
