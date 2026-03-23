@@ -2421,6 +2421,8 @@ mod test {
             let file = format!("a{:x}.json", i);
             run_json_test(file);
         }
+        // AND A, N
+        run_json_test(String::from("e6.json"));
     }
 
     #[test]
