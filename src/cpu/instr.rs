@@ -863,16 +863,19 @@ impl Instruction {
     }
 
     fn or(opcode: u8) -> Instruction {
-        let src = match opcode & 0xF {
-            0x0 | 0x8 => Register::B,
-            0x1 | 0x9 => Register::C,
-            0x2 | 0xA => Register::D,
-            0x3 | 0xB => Register::E,
-            0x4 | 0xC => Register::H,
-            0x5 | 0xD => Register::L,
-            0x6 | 0xE => Register::HL,
-            0x7 | 0xF => Register::A,
-            _ => panic!("invalid opcode {}", opcode),
+        let src = match opcode {
+            0xF6 => Register::N,
+            _ => match opcode & 0xF {
+                0x0 | 0x8 => Register::B,
+                0x1 | 0x9 => Register::C,
+                0x2 | 0xA => Register::D,
+                0x3 | 0xB => Register::E,
+                0x4 | 0xC => Register::H,
+                0x5 | 0xD => Register::L,
+                0x6 | 0xE => Register::HL,
+                0x7 | 0xF => Register::A,
+                _ => panic!("invalid opcode {}", opcode),
+            },
         };
 
         if src == Register::HL {
@@ -883,6 +886,13 @@ impl Instruction {
                     Op::Assert(src),
                     Op::OR(Register::Memory),
                 ])],
+                ..Default::default()
+            }
+        } else if src == Register::N {
+            Instruction {
+                cycles: (8, 0),
+                len: 2,
+                steps: vec![Step::with_ops(vec![Op::Fetch(Fetch::N), Op::OR(src)])],
                 ..Default::default()
             }
         } else {

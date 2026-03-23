@@ -2441,6 +2441,8 @@ mod test {
             let file = format!("b{:x}.json", i);
             run_json_test(file);
         }
+        // OR A, N
+        run_json_test(String::from("f6.json"));
     }
 
     #[test]
