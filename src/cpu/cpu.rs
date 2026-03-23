@@ -2459,6 +2459,8 @@ mod test {
             let file = format!("b{:x}.json", i);
             run_json_test(file);
         }
+        // CP A, N
+        run_json_test(String::from("fe.json"));
     }
 
     #[test]
