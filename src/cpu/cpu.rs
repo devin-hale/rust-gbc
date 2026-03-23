@@ -553,6 +553,7 @@ impl CPU {
             Op::Stop => self.handle_stop(),
             Op::Halt => self.handle_halt(),
             Op::EI => self.enable_interrupts(),
+            Op::DI => self.disable_interrupts(),
             Op::Add(a) => self.handle_add(a),
             Op::ADC(a) => self.handle_adc(a),
             Op::Sub(s) => self.handle_sub(s),
@@ -616,6 +617,10 @@ impl CPU {
 
     fn enable_interrupts(&mut self) {
         self.ie = Some(IE::Primed);
+    }
+
+    fn disable_interrupts(&mut self) {
+        self.ie = None;
     }
 
     fn handle_push(&mut self, r: instr::Register) {
@@ -2338,6 +2343,11 @@ mod test {
     #[test]
     fn test_ei() {
         run_json_test(String::from("fb.json"));
+    }
+
+    #[test]
+    fn test_di() {
+        run_json_test(String::from("f3.json"));
     }
 
     //#[test]

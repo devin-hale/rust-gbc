@@ -162,6 +162,7 @@ impl Instruction {
             0xC1 | 0xD1 | 0xE1 | 0xF1 => Instruction::pop(opcode),
             0xC7 | 0xD7 | 0xE7 | 0xF7 | 0xCF | 0xDF | 0xEF | 0xFF => Instruction::rst(opcode),
             0xFB => Instruction::enable_interrupts(),
+            0xF3 => Instruction::disable_interrupts(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -190,6 +191,13 @@ impl Instruction {
     pub fn enable_interrupts() -> Instruction {
         Instruction {
             steps: vec![Step::with_ops(vec![Op::EI])],
+            ..Default::default()
+        }
+    }
+
+    pub fn disable_interrupts() -> Instruction {
+        Instruction {
+            steps: vec![Step::with_ops(vec![Op::DI])],
             ..Default::default()
         }
     }
@@ -1304,6 +1312,7 @@ pub enum Op {
     CPL,
     CCF,
     EI,
+    DI,
 }
 
 #[derive(Debug, Clone, Copy)]
