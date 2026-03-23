@@ -174,6 +174,7 @@ impl Instruction {
             0xC3 => Instruction::jp(),
             0xC2 | 0xD2 | 0xCA | 0xDA => Instruction::jp_cc(opcode),
             0xCD => Instruction::call(),
+            0xC4 | 0xD4 | 0xCC | 0xDC => Instruction::call_cc(opcode),
             0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => {
                 panic!("invalid opcode {}", opcode)
             }
@@ -292,6 +293,38 @@ impl Instruction {
                 Step::with_ops(vec![Op::Fetch(Fetch::NnHi)]),
                 Step::with_ops(vec![Op::NOP]),
                 Step::with_ops(vec![
+                    Op::Dec(Dec::Register(Register::SP)),
+                    Op::Assert(Register::SP),
+                    Op::Load(Load::MemoryHi(Register::PC)),
+                ]),
+                Step::with_ops(vec![
+                    Op::Dec(Dec::Register(Register::SP)),
+                    Op::Assert(Register::SP),
+                    Op::Load(Load::MemoryLo(Register::PC)),
+                    Op::Load(Load::Register(Register::PC, Register::NN)),
+                ]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn call_cc(opcode: u8) -> Instruction {
+        let cond = match opcode {
+            0xC4 => Cond::NZ,
+            0xD4 => Cond::NC,
+            0xCC => Cond::Z,
+            0xDC => Cond::C,
+            _ => panic!("invalid opcode {}", opcode),
+        };
+        Instruction {
+            cycles: (24, 0),
+            len: 3,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::NnLo)]),
+                Step::with_ops(vec![Op::Fetch(Fetch::NnHi)]),
+                Step::with_ops(vec![Op::NOP]),
+                Step::with_ops(vec![
+                    Op::CheckCond(cond),
                     Op::Dec(Dec::Register(Register::SP)),
                     Op::Assert(Register::SP),
                     Op::Load(Load::MemoryHi(Register::PC)),

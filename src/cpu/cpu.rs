@@ -2452,6 +2452,13 @@ mod test {
     }
 
     #[test]
+    fn test_call_cc() {
+        for op in ["c4", "d4", "cc", "dc"] {
+            run_json_test(format!("{}.json", op));
+        }
+    }
+
+    #[test]
     #[should_panic]
     fn test_invalid_op() {
         run_json_test(String::from("d3.json"));
