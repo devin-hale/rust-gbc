@@ -164,7 +164,8 @@ impl Instruction {
             0xF3 => Instruction::disable_interrupts(),
             0xC9 => Instruction::ret(),
             0xD9 => Instruction::reti(),
-            0xEA => Instruction::ld_a_nnmem(),
+            0xEA => Instruction::ld_nnmem_a(),
+            0xFA => Instruction::ld_a_nnmem(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -342,6 +343,22 @@ impl Instruction {
     }
 
     fn ld_a_nnmem() -> Instruction {
+        Instruction {
+            cycles: (16, 0),
+            len: 3,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::NnLo)]),
+                Step::with_ops(vec![Op::Fetch(Fetch::NnHi)]),
+                Step::with_ops(vec![
+                    Op::Assert(Register::NN),
+                    Op::Load(Load::Register(Register::A, Register::Memory)),
+                ]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn ld_nnmem_a() -> Instruction {
         Instruction {
             cycles: (16, 0),
             len: 3,

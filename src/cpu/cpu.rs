@@ -1047,7 +1047,7 @@ impl CPU {
             instr::Register::Memory => {
                 self.data_bus.assert(val as u8);
                 self.data_bus.write();
-            },
+            }
             _ => todo!("register {:?}", dst),
         }
         Ok(())
@@ -2381,6 +2381,11 @@ mod test {
     #[test]
     fn test_ld_n16mem_a() {
         run_json_test(String::from("ea.json"));
+    }
+
+    #[test]
+    fn test_ld_a_n16mem() {
+        run_json_test(String::from("fa.json"));
     }
 
     //#[test]
