@@ -1044,6 +1044,10 @@ impl CPU {
             instr::Register::A => self.a.write(val as u8),
             instr::Register::NnLo => self.ir.set_n16_lo(val as u8),
             instr::Register::NnHi => self.ir.set_n16_hi(val as u8),
+            instr::Register::Memory => {
+                self.data_bus.assert(val as u8);
+                self.data_bus.write();
+            },
             _ => todo!("register {:?}", dst),
         }
         Ok(())
@@ -2372,6 +2376,11 @@ mod test {
     #[test]
     fn test_reti() {
         run_json_test(String::from("d9.json"));
+    }
+
+    #[test]
+    fn test_ld_n16mem_a() {
+        run_json_test(String::from("ea.json"));
     }
 
     //#[test]
