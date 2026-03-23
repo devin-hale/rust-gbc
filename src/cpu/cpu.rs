@@ -1048,6 +1048,12 @@ impl CPU {
                 self.data_bus.assert(val as u8);
                 self.data_bus.write();
             }
+            instr::Register::FFC => {
+                let addr = 0xFF00 + (self.c.0 as u16);
+                self.addr_bus.assert(addr);
+                self.data_bus.assert(val as u8);
+                self.data_bus.write();
+            }
             _ => todo!("register {:?}", dst),
         }
         Ok(())
@@ -1153,6 +1159,11 @@ impl CPU {
             instr::Register::SP => Ok(self.sp),
             instr::Register::HL => Ok(self.hl().val()),
             instr::Register::Memory => Ok(self.data_bus.read() as u16),
+            instr::Register::FFC => {
+                let addr = 0xFF00 + (self.c.0 as u16);
+                self.addr_bus.assert(addr);
+                return Ok(self.data_bus.read() as u16);
+            }
             _ => todo!("source register {:?}", r),
         }
     }
@@ -2386,6 +2397,16 @@ mod test {
     #[test]
     fn test_ld_a_n16mem() {
         run_json_test(String::from("fa.json"));
+    }
+
+    #[test]
+    fn test_ffc_a() {
+        run_json_test(String::from("e2.json"));
+    }
+
+    #[test]
+    fn test_a_ffc() {
+        run_json_test(String::from("f2.json"));
     }
 
     //#[test]

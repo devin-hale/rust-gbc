@@ -166,6 +166,8 @@ impl Instruction {
             0xD9 => Instruction::reti(),
             0xEA => Instruction::ld_nnmem_a(),
             0xFA => Instruction::ld_a_nnmem(),
+            0xE2 => Instruction::ld_ffc_a(),
+            0xF2 => Instruction::ld_a_ffc(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -338,6 +340,30 @@ impl Instruction {
                     Op::Load(Load::Register(r, Register::NN)),
                 ]),
             ],
+            ..Default::default()
+        }
+    }
+
+    fn ld_ffc_a() -> Instruction {
+        Instruction {
+            cycles: (8, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![Op::Load(Load::Register(
+                Register::FFC,
+                Register::A,
+            ))])],
+            ..Default::default()
+        }
+    }
+
+    fn ld_a_ffc() -> Instruction {
+        Instruction {
+            cycles: (8, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![Op::Load(Load::Register(
+                Register::A,
+                Register::FFC,
+            ))])],
             ..Default::default()
         }
     }
@@ -1449,6 +1475,7 @@ pub enum Register {
     A,
     B,
     C,
+    FFC,
     D,
     E,
     F,
