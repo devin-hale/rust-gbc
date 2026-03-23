@@ -161,6 +161,7 @@ impl Instruction {
             0xC5 | 0xD5 | 0xE5 | 0xF5 => Instruction::push(opcode),
             0xC1 | 0xD1 | 0xE1 | 0xF1 => Instruction::pop(opcode),
             0xC7 | 0xD7 | 0xE7 | 0xF7 | 0xCF | 0xDF | 0xEF | 0xFF => Instruction::rst(opcode),
+            0xFB => Instruction::enable_interrupts(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -182,6 +183,13 @@ impl Instruction {
     pub fn halt() -> Instruction {
         Instruction {
             steps: vec![Step::with_ops(vec![Op::Halt])],
+            ..Default::default()
+        }
+    }
+
+    pub fn enable_interrupts() -> Instruction {
+        Instruction {
+            steps: vec![Step::with_ops(vec![Op::EI])],
             ..Default::default()
         }
     }

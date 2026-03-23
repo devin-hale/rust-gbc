@@ -53,12 +53,8 @@ pub struct CPU {
     halt: bool,
 
     //prefix: bool,
-    //ic_0: Option<InterruptControl>,
-    //ic_1: Option<InterruptControl>,
     ime: bool,
-    ie: bool,
-    //div_cycles: u64,
-    //timer_cycles: u64,
+    ie: Option<IE>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -242,6 +238,12 @@ impl Interrupt {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum IE {
+    Primed,
+    Enable,
+}
+
 struct Register(u8);
 
 impl Register {
@@ -351,7 +353,7 @@ impl CPU {
             halt: false,
             //ic_0: None,
             //ic_1: None,
-            ie: false,
+            ie: None,
             ime: false,
             //n8: None,
             //n16: None,
@@ -372,7 +374,13 @@ impl CPU {
             e: self.e.0,
             h: self.h.0,
             l: self.l.0,
-            ie: Some(self.ie as u8),
+            ie: match self.ie {
+                Some(ie) => match ie {
+                    IE::Enable => Some(1),
+                    _ => None,
+                },
+                _ => None,
+            },
             ime: self.ime as u8,
             ram: vec![],
         }
@@ -391,8 +399,8 @@ impl CPU {
         self.l.0 = s.l;
         if let Some(ie) = s.ie {
             match ie {
-                0 => self.ie = false,
-                _ => self.ie = true,
+                0 => self.ie = None,
+                _ => self.ie = Some(IE::Enable),
             }
         }
         match s.ime {
@@ -523,6 +531,19 @@ impl CPU {
             }
         }
 
+        match self.ie {
+            Some(ie) => match ie {
+                IE::Primed => {
+                    self.ie = Some(IE::Enable);
+                }
+                IE::Enable => {
+                    self.ie = None;
+                    self.ime = true;
+                }
+            },
+            _ => {}
+        }
+
         Ok(())
     }
 
@@ -531,6 +552,7 @@ impl CPU {
             Op::NOP => {}
             Op::Stop => self.handle_stop(),
             Op::Halt => self.handle_halt(),
+            Op::EI => self.enable_interrupts(),
             Op::Add(a) => self.handle_add(a),
             Op::ADC(a) => self.handle_adc(a),
             Op::Sub(s) => self.handle_sub(s),
@@ -590,6 +612,10 @@ impl CPU {
 
     fn handle_halt(&mut self) {
         self.halt = true;
+    }
+
+    fn enable_interrupts(&mut self) {
+        self.ie = Some(IE::Primed);
     }
 
     fn handle_push(&mut self, r: instr::Register) {
@@ -1749,167 +1775,6 @@ impl CPU {
         }
     }
 
-    // ADC
-    fn adc(&mut self, b: R8) {
-        todo!("adc")
-        //let a = self.a.val();
-        //let cf = self.cf() as u8;
-        //let val = self.src_r8(b);
-
-        //let result = a.wrapping_add(val.wrapping_add(cf));
-        //self.a.write(result);
-        //if result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //if bit::check_overflow(a, val.wrapping_add(cf), 3) {
-        //    self.set_flag(Flag::H);
-        //}
-        //if bit::check_overflow(a, val.wrapping_add(cf), 7) {
-        //    self.set_flag(Flag::C);
-        //}
-    }
-
-    fn sub(&mut self, r: R8) {
-        todo!("sub")
-        //let a = self.a.val();
-        //let val = self.src_r8(r);
-        //let result = a.wrapping_sub(val);
-        //self.a.write(result);
-
-        //if result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.set_flag(Flag::N);
-        //if bit::check_borrow(a, val, 4) {
-        //    self.set_flag(Flag::H);
-        //}
-        //if bit::check_borrow(a, val, 8) {
-        //    self.set_flag(Flag::C);
-        //}
-    }
-
-    fn sbc(&mut self, r: R8) {
-        todo!("sbc")
-        //let a = self.a.val();
-        //let cf = self.cf() as u8;
-        //let val = self.src_r8(r);
-        //let result = a.wrapping_sub(val.wrapping_add(cf));
-        //self.a.write(result);
-
-        //if result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.set_flag(Flag::N);
-        //if bit::check_borrow(a, val.wrapping_add(cf), 4) {
-        //    self.set_flag(Flag::H);
-        //}
-        //if bit::check_borrow(a, val.wrapping_add(cf), 8) {
-        //    self.set_flag(Flag::C);
-        //}
-    }
-
-    fn and(&mut self, r: R8) {
-        todo!("and")
-        //let a = self.a.val();
-        //let val = self.src_r8(r);
-        //let result = a & val;
-        //self.a.write(result);
-
-        //if result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //self.set_flag(Flag::H);
-        //self.reset_flag(Flag::C);
-    }
-
-    fn xor(&mut self, r: R8) {
-        todo!("and")
-        //let a = self.a.val();
-        //let val = self.src_r8(r);
-        //let result = a ^ val;
-        //self.a.write(result);
-
-        //if result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //self.reset_flag(Flag::H);
-        //self.reset_flag(Flag::C);
-    }
-
-    fn or(&mut self, r: R8) {
-        todo!("or")
-        //let a = self.a.val();
-        //let val = self.src_r8(r);
-        //let result = a | val;
-        //self.a.write(result);
-
-        //if result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //self.reset_flag(Flag::H);
-        //self.reset_flag(Flag::C);
-    }
-
-    fn cp(&mut self, r: R8) {
-        todo!("cp")
-        //let a = self.a.val();
-        //let val = self.src_r8(r);
-        //let result = a.wrapping_sub(val);
-
-        //if result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.set_flag(Flag::N);
-        //if bit::check_borrow(a, val, 4) {
-        //    self.set_flag(Flag::H);
-        //}
-        //if bit::check_borrow(a, val, 8) {
-        //    self.set_flag(Flag::C);
-        //}
-    }
-
-    fn ldh_a(&mut self, m: instr::Mem) {
-        todo!("rework")
-        //let addr = match m {
-        //    instr::Mem::C => (self.c.val() as u16) + 0xFF00,
-        //    instr::Mem::N8 => (self.imm() as u16) + 0xFF00,
-        //    _ => panic!("invalid ldh destination operation"),
-        //};
-        //let val = self.mem.read(addr);
-        //self.a.write(val);
-    }
-
-    fn ldh_m(&mut self, m: instr::Mem) {
-        todo!("rework")
-        //let a = self.a.val();
-        //let addr = match m {
-        //    instr::Mem::C => (self.c.val() as u16) | 0xFF00,
-        //    instr::Mem::N8 => (self.imm() as u16) | 0xFF00,
-        //    _ => panic!("invalid ldh destination operation"),
-        //};
-        //self.mem.write(addr, a);
-    }
-
-    fn ret(&mut self) {
-        todo!("rework")
-        //let addr = self.sp;
-        //let val = self.mem.read_word(addr);
-        //self.pc = val;
-        //self.sp = self.sp.wrapping_add(2);
-    }
-
-    fn ret_cond(&mut self, c: Cond) -> bool {
-        if self.cc(c) {
-            self.ret();
-            return true;
-        }
-        false
-    }
-
     //fn reti(&mut self) {
     //    self.ret();
     //    self.ime = true;
@@ -2078,10 +1943,9 @@ mod test {
         assert_eq!(s.pc, cpu.pc);
         assert_eq!(s.sp, cpu.sp);
         //assert_eq!(s.ime, cpu.ime as u8);
-        //if let Some(ie) = s.ie {
-        //    assert_eq!(ie, cpu.ie as u8);
-        //} else {
-        //    assert!(!cpu.ie);
+        //match s.ie {
+        //    Some(ie) => assert_eq!(ie, cpu.ie as u8),
+        //    _ => assert!(!cpu.ie),
         //}
     }
 
@@ -2469,6 +2333,11 @@ mod test {
             let file = format!("{:x}f.json", i);
             run_json_test(file);
         }
+    }
+
+    #[test]
+    fn test_ei() {
+        run_json_test(String::from("fb.json"));
     }
 
     //#[test]
