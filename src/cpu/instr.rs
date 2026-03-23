@@ -159,6 +159,7 @@ impl Instruction {
             0xB0..=0xB7 => Instruction::or(opcode),
             0xB8..=0xBF => Instruction::cp(opcode),
             0xC5 | 0xD5 | 0xE5 | 0xF5 => Instruction::push(opcode),
+            0xC1 | 0xD1 | 0xE1 | 0xF1 => Instruction::pop(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -196,11 +197,34 @@ impl Instruction {
             steps: vec![
                 Step::with_ops(vec![Op::NOP]),
                 Step::with_ops(vec![
-                    Op::AssertDec(Register::SP),
+                    Op::AssertPreDec(Register::SP),
                     Op::Load(Load::Memory(hi)),
                 ]),
                 Step::with_ops(vec![
-                    Op::AssertDec(Register::SP),
+                    Op::AssertPreDec(Register::SP),
+                    Op::Load(Load::Memory(lo)),
+                ]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    pub fn pop(opcode: u8) -> Instruction {
+        let (hi, lo) = match opcode {
+            0xC1 => (Register::B, Register::C),
+            0xD1 => (Register::D, Register::E),
+            0xE1 => (Register::H, Register::L),
+            0xF1 => (Register::A, Register::F),
+            _ => panic!("invalid opcode"),
+        };
+        Instruction {
+            steps: vec![
+                Step::with_ops(vec![
+                    Op::AssertPreInc(Register::SP),
+                    Op::Load(Load::Memory(hi)),
+                ]),
+                Step::with_ops(vec![
+                    Op::AssertPreInc(Register::SP),
                     Op::Load(Load::Memory(lo)),
                 ]),
             ],
@@ -1158,7 +1182,8 @@ pub enum Op {
     Fetch(Fetch),
     Assert(Register),
     AssertInc(Register),
-    AssertDec(Register),
+    AssertPreDec(Register),
+    AssertPreInc(Register),
     Load(Load),
     Inc(Inc),
     Dec(Dec),

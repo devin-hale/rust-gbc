@@ -567,7 +567,8 @@ impl CPU {
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
             Op::AssertInc(r) => self.handle_assert_inc(r),
-            Op::AssertDec(r) => self.handle_assert_dec(r),
+            Op::AssertPreDec(r) => self.handle_assert_predec(r),
+            Op::AssertPreInc(r) => self.handle_assert_preinc(r),
             Op::Inc(i) => self.handle_inc(i),
             Op::Dec(d) => self.handle_dec(d),
             Op::RLC(r) => self.handle_rlc(r),
@@ -967,10 +968,21 @@ impl CPU {
         }
     }
 
-    fn handle_assert_dec(&mut self, r: instr::Register) {
+    fn handle_assert_predec(&mut self, r: instr::Register) {
         match r {
             instr::Register::SP => {
                 let val = self.sp.wrapping_sub(1);
+                self.sp = val;
+                self.addr_bus.assert(val);
+            }
+            _ => todo!("assert dec register {:?}", r),
+        }
+    }
+
+    fn handle_assert_preinc(&mut self, r: instr::Register) {
+        match r {
+            instr::Register::SP => {
+                let val = self.sp.wrapping_add(1);
                 self.sp = val;
                 self.addr_bus.assert(val);
             }
@@ -2426,6 +2438,15 @@ mod test {
     #[test]
     fn test_push_rr() {
         // PUSH RR
+        for i in 0xC..=0xF {
+            let file = format!("{:x}5.json", i);
+            run_json_test(file);
+        }
+    }
+
+    #[test]
+    fn test_pop_rr() {
+        // POP RR
         for i in 0xC..=0xF {
             let file = format!("{:x}5.json", i);
             run_json_test(file);
