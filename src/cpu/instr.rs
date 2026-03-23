@@ -158,6 +158,7 @@ impl Instruction {
             0xA8..=0xAF => Instruction::xor(opcode),
             0xB0..=0xB7 => Instruction::or(opcode),
             0xB8..=0xBF => Instruction::cp(opcode),
+            0xC5 | 0xD5 | 0xE5 | 0xF5 => Instruction::push(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -179,6 +180,30 @@ impl Instruction {
     pub fn halt() -> Instruction {
         Instruction {
             steps: vec![Step::with_ops(vec![Op::Halt])],
+            ..Default::default()
+        }
+    }
+
+    pub fn push(opcode: u8) -> Instruction {
+        let (hi, lo) = match opcode {
+            0xC5 => (Register::B, Register::C),
+            0xD5 => (Register::D, Register::E),
+            0xE5 => (Register::H, Register::L),
+            0xF5 => (Register::A, Register::F),
+            _ => panic!("invalid opcode"),
+        };
+        Instruction {
+            steps: vec![
+                Step::with_ops(vec![Op::NOP]),
+                Step::with_ops(vec![
+                    Op::AssertDec(Register::SP),
+                    Op::Load(Load::Memory(hi)),
+                ]),
+                Step::with_ops(vec![
+                    Op::AssertDec(Register::SP),
+                    Op::Load(Load::Memory(lo)),
+                ]),
+            ],
             ..Default::default()
         }
     }
@@ -1121,6 +1146,7 @@ impl Step {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Op {
+    NOP,
     Add(Add),
     Sub(Sub),
     ADC(ADC),
@@ -1132,6 +1158,7 @@ pub enum Op {
     Fetch(Fetch),
     Assert(Register),
     AssertInc(Register),
+    AssertDec(Register),
     Load(Load),
     Inc(Inc),
     Dec(Dec),
@@ -1219,6 +1246,7 @@ pub enum Register {
     DE,
     AF,
     SP,
+    SPDec,
     PC,
     N,
     NN,

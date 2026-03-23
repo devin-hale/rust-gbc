@@ -552,6 +552,7 @@ impl CPU {
 
     fn execute_op(&mut self, op: Op) -> Result<(), Error> {
         match op {
+            Op::NOP => {}
             Op::Stop => self.handle_stop(),
             Op::Halt => self.handle_halt(),
             Op::Add(a) => self.handle_add(a),
@@ -566,6 +567,7 @@ impl CPU {
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
             Op::AssertInc(r) => self.handle_assert_inc(r),
+            Op::AssertDec(r) => self.handle_assert_dec(r),
             Op::Inc(i) => self.handle_inc(i),
             Op::Dec(d) => self.handle_dec(d),
             Op::RLC(r) => self.handle_rlc(r),
@@ -606,6 +608,14 @@ impl CPU {
 
     fn handle_halt(&mut self) {
         self.halt = true;
+    }
+
+    fn handle_push(&mut self, r: instr::Register) {
+        let val = self.src_register(r).unwrap() as u8;
+        let sp = self.sp.wrapping_sub(1);
+        self.sp = sp;
+        self.addr_bus.assert(sp);
+        self.data_bus.assert(val);
     }
 
     fn handle_inc(&mut self, i: Inc) {
@@ -957,6 +967,17 @@ impl CPU {
         }
     }
 
+    fn handle_assert_dec(&mut self, r: instr::Register) {
+        match r {
+            instr::Register::SP => {
+                let val = self.sp.wrapping_sub(1);
+                self.sp = val;
+                self.addr_bus.assert(val);
+            }
+            _ => todo!("assert dec register {:?}", r),
+        }
+    }
+
     fn handle_load(&mut self, l: Load) -> Result<(), Error> {
         match l {
             Load::Register(dst, src) => {
@@ -994,6 +1015,10 @@ impl CPU {
         match src {
             instr::Register::A => {
                 self.data_bus.assert(self.a.0);
+                self.data_bus.write();
+            }
+            instr::Register::F => {
+                self.data_bus.assert(self.f.0);
                 self.data_bus.write();
             }
             instr::Register::B => {
@@ -2394,6 +2419,15 @@ mod test {
         // CP A, R
         for i in 0x8..=0xF {
             let file = format!("b{:x}.json", i);
+            run_json_test(file);
+        }
+    }
+
+    #[test]
+    fn test_push_rr() {
+        // PUSH RR
+        for i in 0xC..=0xF {
+            let file = format!("{:x}5.json", i);
             run_json_test(file);
         }
     }
