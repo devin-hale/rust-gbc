@@ -19,10 +19,7 @@ use thiserror::Error;
 
 use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, R8, R16, T3};
 use crate::{
-    cpu::instr::{
-        ADC, Add, Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, SBC, Sub, decode,
-        decode_prefix,
-    },
+    cpu::instr::{ADC, Add, Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, SBC, Sub},
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
 };
@@ -493,32 +490,11 @@ impl CPU {
         self.data_bus.read()
     }
 
-    //fn imm(&mut self) -> u8 {
-    //    let n = self.fetch();
-    //    self.n8 = Some(n);
-    //    n
-    //}
-
     fn fetch_word(&mut self) -> u16 {
         let low = self.fetch() as u16;
         let high = self.fetch() as u16;
         (high << 8) | low
     }
-
-    //fn imm_word(&mut self) -> u16 {
-    //    let n = self.fetch_word();
-    //    self.n16 = Some(n);
-    //    n
-    //}
-
-    //fn decode(&mut self, opcode: u8) -> Result<Instruction, Error> {
-    //    if self.prefix {
-    //        self.prefix = false;
-    //        Ok(decode_prefix(opcode)?)
-    //    } else {
-    //        Ok(decode(opcode)?)
-    //    }
-    //}
 
     pub fn execute(&mut self) -> Result<(), Error> {
         if self.ir.done() {
