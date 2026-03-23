@@ -348,17 +348,10 @@ impl CPU {
             addr_bus: mem.address_bus(memory::Accessor::CPU),
             data_bus: mem.data_bus(memory::Accessor::CPU),
             ir: Instruction::nop(),
-            //prefix: false,
             stop: false,
             halt: false,
-            //ic_0: None,
-            //ic_1: None,
             ie: None,
             ime: false,
-            //n8: None,
-            //n16: None,
-            //div_cycles: 0,
-            //timer_cycles: 0,
         }
     }
 
@@ -2428,6 +2421,14 @@ mod test {
     #[test]
     fn test_a_ffc() {
         run_json_test(String::from("f2.json"));
+    }
+
+    #[test]
+    fn test_ret_cc() {
+        run_json_test(String::from("c0.json"));
+        run_json_test(String::from("d0.json"));
+        run_json_test(String::from("c8.json"));
+        run_json_test(String::from("d8.json"));
     }
 
     //#[test]

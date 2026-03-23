@@ -170,6 +170,7 @@ impl Instruction {
             0xF0 => Instruction::ld_a_ffn(),
             0xE2 => Instruction::ld_ffc_a(),
             0xF2 => Instruction::ld_a_ffc(),
+            0xC0 | 0xD0 | 0xC8 | 0xD8 => Instruction::ret_cc(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -241,6 +242,34 @@ impl Instruction {
                     Op::AssertPostInc(Register::SP),
                     Op::Load(Load::Register(Register::NnHi, Register::Memory)),
                     Op::EI,
+                ]),
+                Step::with_ops(vec![Op::Load(Load::Register(Register::PC, Register::NN))]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn ret_cc(opcode: u8) -> Instruction {
+        let cond = match opcode {
+            0xC0 => Cond::NZ,
+            0xD0 => Cond::NC,
+            0xC8 => Cond::Z,
+            0xD8 => Cond::C,
+            _ => panic!("invalid opcode {}", opcode),
+        };
+        Instruction {
+            cycles: (8, 20),
+            len: 1,
+            steps: vec![
+                Step::with_ops(vec![Op::NOP]),
+                Step::with_ops(vec![
+                    Op::CheckCond(cond),
+                    Op::AssertPostInc(Register::SP),
+                    Op::Load(Load::Register(Register::NnLo, Register::Memory)),
+                ]),
+                Step::with_ops(vec![
+                    Op::AssertPostInc(Register::SP),
+                    Op::Load(Load::Register(Register::NnHi, Register::Memory)),
                 ]),
                 Step::with_ops(vec![Op::Load(Load::Register(Register::PC, Register::NN))]),
             ],
