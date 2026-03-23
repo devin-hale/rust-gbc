@@ -171,6 +171,7 @@ impl Instruction {
             0xE2 => Instruction::ld_ffc_a(),
             0xF2 => Instruction::ld_a_ffc(),
             0xC0 | 0xD0 | 0xC8 | 0xD8 => Instruction::ret_cc(opcode),
+            0xC3 => Instruction::jp(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -732,6 +733,19 @@ impl Instruction {
             len: 1,
             steps: vec![Step::with_ops(vec![Op::CCF])],
             eager: true,
+            ..Default::default()
+        }
+    }
+
+    fn jp() -> Instruction {
+        Instruction {
+            cycles: (16, 0),
+            len: 3,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::NnLo)]),
+                Step::with_ops(vec![Op::Fetch(Fetch::NnHi)]),
+                Step::with_ops(vec![Op::Load(Load::Register(Register::PC, Register::NN))]),
+            ],
             ..Default::default()
         }
     }

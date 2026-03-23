@@ -2431,6 +2431,11 @@ mod test {
         run_json_test(String::from("d8.json"));
     }
 
+    #[test]
+    fn test_jp() {
+        run_json_test(String::from("c3.json"));
+    }
+
     //#[test]
     //fn jump_relative() {
     //    let mem = Arc::new(Mutex::new(Memory::new()));
