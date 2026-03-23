@@ -2414,6 +2414,8 @@ mod test {
             let file = format!("9{:x}.json", i);
             run_json_test(file);
         }
+        // sbc A, N
+        run_json_test(String::from("de.json"));
     }
 
     #[test]
