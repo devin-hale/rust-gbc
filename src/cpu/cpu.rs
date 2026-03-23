@@ -569,6 +569,7 @@ impl CPU {
             Op::AssertInc(r) => self.handle_assert_inc(r),
             Op::AssertPreDec(r) => self.handle_assert_predec(r),
             Op::AssertPreInc(r) => self.handle_assert_preinc(r),
+            Op::SetN(v) => self.handle_set_n(v),
             Op::Inc(i) => self.handle_inc(i),
             Op::Dec(d) => self.handle_dec(d),
             Op::RLC(r) => self.handle_rlc(r),
@@ -605,6 +606,10 @@ impl CPU {
             }
         }
         Ok(())
+    }
+
+    fn handle_set_n(&mut self, val: u8) {
+        self.ir.set_n8(val);
     }
 
     fn handle_halt(&mut self) {
@@ -1080,6 +1085,11 @@ impl CPU {
                 self.data_bus.assert(val);
                 self.data_bus.write();
             }
+            instr::Register::PC => {
+                let val = (self.pc & 0xFF) as u8;
+                self.data_bus.assert(val);
+                self.data_bus.write();
+            }
             _ => todo!("register {:?}", src),
         }
     }
@@ -1088,6 +1098,11 @@ impl CPU {
         match src {
             instr::Register::SP => {
                 let val = (self.sp >> 8) as u8;
+                self.data_bus.assert(val);
+                self.data_bus.write();
+            }
+            instr::Register::PC => {
+                let val = (self.pc >> 8) as u8;
                 self.data_bus.assert(val);
                 self.data_bus.write();
             }
@@ -2449,6 +2464,20 @@ mod test {
         // POP RR
         for i in 0xC..=0xF {
             let file = format!("{:x}5.json", i);
+            run_json_test(file);
+        }
+    }
+
+    #[test]
+    fn test_rst() {
+        // RST
+        for i in 0xC..=0xF {
+            let file = format!("{:x}7.json", i);
+            run_json_test(file);
+        }
+
+        for i in 0xC..=0xF {
+            let file = format!("{:x}f.json", i);
             run_json_test(file);
         }
     }

@@ -160,6 +160,7 @@ impl Instruction {
             0xB8..=0xBF => Instruction::cp(opcode),
             0xC5 | 0xD5 | 0xE5 | 0xF5 => Instruction::push(opcode),
             0xC1 | 0xD1 | 0xE1 | 0xF1 => Instruction::pop(opcode),
+            0xC7 | 0xD7 | 0xE7 | 0xF7 | 0xCF | 0xDF | 0xEF | 0xFF => Instruction::rst(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -226,6 +227,35 @@ impl Instruction {
                 Step::with_ops(vec![
                     Op::AssertPreInc(Register::SP),
                     Op::Load(Load::Memory(lo)),
+                ]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    pub fn rst(opcode: u8) -> Instruction {
+        let rst_addr = match opcode {
+            0xC7 => 0x00,
+            0xD7 => 0x10,
+            0xE7 => 0x20,
+            0xF7 => 0x30,
+            0xCF => 0x08,
+            0xDF => 0x18,
+            0xEF => 0x28,
+            0xFF => 0x38,
+            _ => panic!("invalid opcode"),
+        };
+        Instruction {
+            steps: vec![
+                Step::with_ops(vec![Op::SetN(rst_addr)]),
+                Step::with_ops(vec![
+                    Op::AssertPreDec(Register::SP),
+                    Op::Load(Load::MemoryHi(Register::PC)),
+                ]),
+                Step::with_ops(vec![
+                    Op::AssertPreDec(Register::SP),
+                    Op::Load(Load::MemoryLo(Register::PC)),
+                    Op::Load(Load::Register(Register::PC, Register::N)),
                 ]),
             ],
             ..Default::default()
@@ -1184,6 +1214,7 @@ pub enum Op {
     AssertInc(Register),
     AssertPreDec(Register),
     AssertPreInc(Register),
+    SetN(u8),
     Load(Load),
     Inc(Inc),
     Dec(Dec),
