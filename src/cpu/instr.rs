@@ -172,6 +172,7 @@ impl Instruction {
             0xF2 => Instruction::ld_a_ffc(),
             0xC0 | 0xD0 | 0xC8 | 0xD8 => Instruction::ret_cc(opcode),
             0xC3 => Instruction::jp(),
+            0xC2 | 0xD2 | 0xCA | 0xDA => Instruction::jp_cc(opcode),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -745,6 +746,29 @@ impl Instruction {
                 Step::with_ops(vec![Op::Fetch(Fetch::NnLo)]),
                 Step::with_ops(vec![Op::Fetch(Fetch::NnHi)]),
                 Step::with_ops(vec![Op::Load(Load::Register(Register::PC, Register::NN))]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn jp_cc(opcode: u8) -> Instruction {
+        let cond = match opcode {
+            0xC2 => Cond::NZ,
+            0xD2 => Cond::NC,
+            0xCA => Cond::Z,
+            0xDA => Cond::C,
+            _ => panic!("invalid opcode {}", opcode),
+        };
+        Instruction {
+            cycles: (16, 0),
+            len: 3,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::NnLo)]),
+                Step::with_ops(vec![Op::Fetch(Fetch::NnHi)]),
+                Step::with_ops(vec![
+                    Op::CheckCond(cond),
+                    Op::Load(Load::Register(Register::PC, Register::NN)),
+                ]),
             ],
             ..Default::default()
         }
