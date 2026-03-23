@@ -1144,6 +1144,8 @@ impl CPU {
         match r {
             instr::Register::NN => Ok(self.ir.n16()),
             instr::Register::N => Ok(self.ir.n8() as u16),
+            instr::Register::NnLo => Ok(self.ir.n16_lo() as u16),
+            instr::Register::NnHi => Ok(self.ir.n16_hi() as u16),
             instr::Register::NE => Ok(self.ir.e() as u16),
             instr::Register::A => Ok(self.a.val() as u16),
             instr::Register::B => Ok(self.b.val() as u16),
@@ -2442,6 +2444,11 @@ mod test {
         run_json_test(String::from("d2.json"));
         run_json_test(String::from("ca.json"));
         run_json_test(String::from("da.json"));
+    }
+
+    #[test]
+    fn test_call() {
+        run_json_test(String::from("cd.json"));
     }
 
     #[test]
