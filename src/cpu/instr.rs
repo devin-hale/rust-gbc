@@ -172,6 +172,7 @@ impl Instruction {
             0xF2 => Instruction::ld_a_ffc(),
             0xC0 | 0xD0 | 0xC8 | 0xD8 => Instruction::ret_cc(opcode),
             0xC3 => Instruction::jp(),
+            0xE9 => Instruction::jp_hl(),
             0xC2 | 0xD2 | 0xCA | 0xDA => Instruction::jp_cc(opcode),
             0xCD => Instruction::call(),
             0xC4 | 0xD4 | 0xCC | 0xDC => Instruction::call_cc(opcode),
@@ -808,6 +809,19 @@ impl Instruction {
                 Step::with_ops(vec![Op::Fetch(Fetch::NnHi)]),
                 Step::with_ops(vec![Op::Load(Load::Register(Register::PC, Register::NN))]),
             ],
+            ..Default::default()
+        }
+    }
+
+    fn jp_hl() -> Instruction {
+        Instruction {
+            cycles: (4, 0),
+            len: 1,
+            eager: true,
+            steps: vec![Step::with_ops(vec![Op::Load(Load::Register(
+                Register::PC,
+                Register::HL,
+            ))])],
             ..Default::default()
         }
     }
