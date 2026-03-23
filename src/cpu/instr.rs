@@ -155,7 +155,7 @@ impl Instruction {
             0x90..=0x97 | 0xD6 => Instruction::sub_a_r(opcode),
             0x98..=0x9F | 0xDE => Instruction::sbc_a_r(opcode),
             0xA0..=0xA7 | 0xE6 => Instruction::and(opcode),
-            0xA8..=0xAF => Instruction::xor(opcode),
+            0xA8..=0xAF | 0xEE => Instruction::xor(opcode),
             0xB0..=0xB7 | 0xF6 => Instruction::or(opcode),
             0xB8..=0xBF => Instruction::cp(opcode),
             0xC5 | 0xD5 | 0xE5 | 0xF5 => Instruction::push(opcode),
@@ -855,16 +855,19 @@ impl Instruction {
     }
 
     fn xor(opcode: u8) -> Instruction {
-        let src = match opcode & 0xF {
-            0x0 | 0x8 => Register::B,
-            0x1 | 0x9 => Register::C,
-            0x2 | 0xA => Register::D,
-            0x3 | 0xB => Register::E,
-            0x4 | 0xC => Register::H,
-            0x5 | 0xD => Register::L,
-            0x6 | 0xE => Register::HL,
-            0x7 | 0xF => Register::A,
-            _ => panic!("invalid opcode {}", opcode),
+        let src = match opcode {
+            0xEE => Register::N,
+            _ => match opcode & 0xF {
+                0x0 | 0x8 => Register::B,
+                0x1 | 0x9 => Register::C,
+                0x2 | 0xA => Register::D,
+                0x3 | 0xB => Register::E,
+                0x4 | 0xC => Register::H,
+                0x5 | 0xD => Register::L,
+                0x6 | 0xE => Register::HL,
+                0x7 | 0xF => Register::A,
+                _ => panic!("invalid opcode {}", opcode),
+            },
         };
 
         if src == Register::HL {
@@ -875,6 +878,13 @@ impl Instruction {
                     Op::Assert(src),
                     Op::XOR(Register::Memory),
                 ])],
+                ..Default::default()
+            }
+        } else if src == Register::N {
+            Instruction {
+                cycles: (8, 0),
+                len: 2,
+                steps: vec![Step::with_ops(vec![Op::Fetch(Fetch::N), Op::XOR(src)])],
                 ..Default::default()
             }
         } else {

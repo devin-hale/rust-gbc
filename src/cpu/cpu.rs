@@ -2436,6 +2436,9 @@ mod test {
             let file = format!("a{:x}.json", i);
             run_json_test(file);
         }
+
+        // XOR A, N
+        run_json_test(String::from("ee.json"));
     }
 
     #[test]
