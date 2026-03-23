@@ -566,6 +566,7 @@ impl CPU {
             Op::Load(l) => self.handle_load(l)?,
             Op::Assert(r) => self.handle_assert(r),
             Op::AssertInc(r) => self.handle_assert_inc(r),
+            Op::AssertPostInc(r) => self.handle_assert_postinc(r),
             Op::AssertPreDec(r) => self.handle_assert_predec(r),
             Op::AssertPreInc(r) => self.handle_assert_preinc(r),
             Op::SetN(v) => self.handle_set_n(v),
@@ -980,6 +981,17 @@ impl CPU {
         }
     }
 
+    fn handle_assert_postinc(&mut self, r: instr::Register) {
+        match r {
+            instr::Register::SP => {
+                self.addr_bus.assert(self.sp);
+                let val = self.sp.wrapping_add(1);
+                self.sp = val;
+            }
+            _ => todo!("assert inc register {:?}", r),
+        }
+    }
+
     fn handle_assert_predec(&mut self, r: instr::Register) {
         match r {
             instr::Register::SP => {
@@ -1030,6 +1042,8 @@ impl CPU {
             instr::Register::E => self.e.write(val as u8),
             instr::Register::L => self.l.write(val as u8),
             instr::Register::A => self.a.write(val as u8),
+            instr::Register::NnLo => self.ir.set_n16_lo(val as u8),
+            instr::Register::NnHi => self.ir.set_n16_hi(val as u8),
             _ => todo!("register {:?}", dst),
         }
         Ok(())
@@ -2348,6 +2362,11 @@ mod test {
     #[test]
     fn test_di() {
         run_json_test(String::from("f3.json"));
+    }
+
+    #[test]
+    fn test_ret() {
+        run_json_test(String::from("c9.json"));
     }
 
     //#[test]

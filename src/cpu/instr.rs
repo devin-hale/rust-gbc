@@ -127,7 +127,6 @@ impl Instruction {
 impl Instruction {
     pub fn decode(opcode: u8) -> Instruction {
         match opcode {
-            // NOP
             0x00 => Instruction::nop(),
             0x10 => Instruction::stop(),
             0x01 | 0x11 | 0x21 | 0x31 => Instruction::ld_rr_nn(opcode),
@@ -163,6 +162,7 @@ impl Instruction {
             0xC7 | 0xD7 | 0xE7 | 0xF7 | 0xCF | 0xDF | 0xEF | 0xFF => Instruction::rst(opcode),
             0xFB => Instruction::enable_interrupts(),
             0xF3 => Instruction::disable_interrupts(),
+            0xC9 => Instruction::ret(),
             _ => todo!("opcode {}", opcode),
         }
     }
@@ -198,6 +198,25 @@ impl Instruction {
     pub fn disable_interrupts() -> Instruction {
         Instruction {
             steps: vec![Step::with_ops(vec![Op::DI])],
+            ..Default::default()
+        }
+    }
+
+    pub fn ret() -> Instruction {
+        Instruction {
+            cycles: (16, 0),
+            len: 1,
+            steps: vec![
+                Step::with_ops(vec![
+                    Op::AssertPostInc(Register::SP),
+                    Op::Load(Load::Register(Register::NnLo, Register::Memory)),
+                ]),
+                Step::with_ops(vec![
+                    Op::AssertPostInc(Register::SP),
+                    Op::Load(Load::Register(Register::NnHi, Register::Memory)),
+                ]),
+                Step::with_ops(vec![Op::Load(Load::Register(Register::PC, Register::NN))]),
+            ],
             ..Default::default()
         }
     }
@@ -1294,6 +1313,7 @@ pub enum Op {
     Fetch(Fetch),
     Assert(Register),
     AssertInc(Register),
+    AssertPostInc(Register),
     AssertPreDec(Register),
     AssertPreInc(Register),
     SetN(u8),
