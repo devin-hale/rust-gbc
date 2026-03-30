@@ -132,6 +132,7 @@ impl Instruction {
             0x01 | 0x11 | 0x21 | 0x31 => Instruction::ld_rr_nn(opcode),
             0x02 | 0x12 | 0x22 | 0x32 => Instruction::ld_rrm_nn(opcode),
             0x0A | 0x1A | 0x2A | 0x3A => Instruction::ld_a_rrm(opcode),
+            0x0B | 0x1B | 0x2B | 0x3B => Instruction::dec_rr(opcode),
             0x03 | 0x13 | 0x23 | 0x33 => Instruction::inc_rr(opcode),
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => Instruction::inc_r(opcode),
             0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => Instruction::dec_r(opcode),
@@ -183,7 +184,7 @@ impl Instruction {
             0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => {
                 panic!("invalid opcode {}", opcode)
             }
-            _ => todo!("opcode {}", opcode),
+            _ => panic!("invalid opcode {opcode}"),
         }
     }
 
@@ -708,6 +709,22 @@ impl Instruction {
                 .push(Step::with_ops(vec![Op::Dec(Dec::Register(r))]));
         }
         i
+    }
+
+    fn dec_rr(opcode: u8) -> Instruction {
+        let r = match opcode {
+            0x0B => Register::BC,
+            0x1B => Register::DE,
+            0x2B => Register::HL,
+            0x3B => Register::SP,
+            _ => panic!("invalid opcode"),
+        };
+        Instruction {
+            cycles: (8, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![Op::Dec(Dec::Register(r))])],
+            ..Default::default()
+        }
     }
 
     fn ld_r_n(opcode: u8) -> Instruction {
