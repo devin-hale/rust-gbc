@@ -1505,7 +1505,23 @@ impl CPU {
     fn handle_add_register(&mut self, r1: instr::Register, r2: instr::Register) {
         let a = self.src_register(r1).unwrap();
         let result: u16;
-        if r2 == instr::Register::NE {
+        if r1 == instr::Register::SP && r2 == instr::Register::NE {
+            let a = self.sp;
+            let b = (self.ir.e() as i16) as u16;
+            result = a.wrapping_add(b);
+            if (a & 0xF) + (b & 0xF) > 0xF {
+                self.set_flag(Flag::H);
+            } else {
+                self.reset_flag(Flag::H);
+            }
+            if (a & 0xFF) + (b & 0xFF) > 0xFF {
+                self.set_flag(Flag::C);
+            } else {
+                self.reset_flag(Flag::C);
+            }
+            self.reset_flag(Flag::Z);
+            self.reset_flag(Flag::N);
+        } else if r2 == instr::Register::NE {
             let b = self.src_register(r2).unwrap() as i16;
             result = (a as i16).wrapping_add(b) as u16;
         } else {
@@ -2484,6 +2500,11 @@ mod test {
         run_json_test(String::from("f4.json"));
         run_json_test(String::from("fc.json"));
         run_json_test(String::from("fd.json"));
+    }
+
+    #[test]
+    fn test_add_sp_i8() {
+        run_json_test(String::from("e8.json"))
     }
 
     //#[test]

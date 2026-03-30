@@ -173,6 +173,7 @@ impl Instruction {
             0xF9 => Instruction::ld_sp_hl(),
             0xC0 | 0xD0 | 0xC8 | 0xD8 => Instruction::ret_cc(opcode),
             0xC3 => Instruction::jp(),
+            0xE8 => Instruction::add_sp_i8(),
             0xE9 => Instruction::jp_hl(),
             0xC2 | 0xD2 | 0xCA | 0xDA => Instruction::jp_cc(opcode),
             0xCD => Instruction::call(),
@@ -1008,6 +1009,19 @@ impl Instruction {
                 steps: vec![Step::with_ops(vec![Op::Add(Add::Register(dest, src))])],
                 ..Default::default()
             }
+        }
+    }
+
+    fn add_sp_i8() -> Instruction {
+        Instruction {
+            cycles: (16, 0),
+            len: 2,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::E)]),
+                Step::with_ops(vec![Op::Add(Add::Register(Register::SP, Register::NE))]),
+                Step::with_ops(vec![Op::NOP]),
+            ],
+            ..Default::default()
         }
     }
 
