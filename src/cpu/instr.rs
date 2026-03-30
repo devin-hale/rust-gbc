@@ -131,6 +131,7 @@ impl Instruction {
             0x10 => Instruction::stop(),
             0x01 | 0x11 | 0x21 | 0x31 => Instruction::ld_rr_nn(opcode),
             0x02 | 0x12 | 0x22 | 0x32 => Instruction::ld_rrm_nn(opcode),
+            0x0A | 0x1A | 0x2A | 0x3A => Instruction::ld_a_rrm(opcode),
             0x03 | 0x13 | 0x23 | 0x33 => Instruction::inc_rr(opcode),
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => Instruction::inc_r(opcode),
             0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => Instruction::dec_r(opcode),
@@ -438,6 +439,25 @@ impl Instruction {
                     Op::Load(Load::Register(r, Register::NN)),
                 ]),
             ],
+            ..Default::default()
+        }
+    }
+
+    fn ld_a_rrm(opcode: u8) -> Instruction {
+        let r = match opcode {
+            0x0a => Register::BC,
+            0x1a => Register::DE,
+            0x2a => Register::HLI,
+            0x3a => Register::HLD,
+            _ => panic!("invalid opcode"),
+        };
+        Instruction {
+            cycles: (8, 0),
+            len: 1,
+            steps: vec![Step::with_ops(vec![
+                Op::Assert(r),
+                Op::Load(Load::Register(Register::A, Register::Memory)),
+            ])],
             ..Default::default()
         }
     }

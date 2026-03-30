@@ -1159,6 +1159,11 @@ impl CPU {
             instr::Register::DE => Ok(self.de().val()),
             instr::Register::SP => Ok(self.sp),
             instr::Register::HL => Ok(self.hl().val()),
+            instr::Register::HLI => {
+                let val = self.hl().val();
+                self.hl().inc();
+                return Ok(val);
+            },
             instr::Register::Memory => Ok(self.data_bus.read() as u16),
             instr::Register::FFC => {
                 let addr = 0xFF00 + (self.c.0 as u16);
@@ -2432,6 +2437,13 @@ mod test {
     #[test]
     fn test_ld_n16mem_a() {
         run_json_test(String::from("ea.json"));
+    }
+
+    #[test]
+    fn test_ld_a_r16mem() {
+        for i in 0..=3u8 {
+            run_json_test(format!("{i:x}a.json"));
+        }
     }
 
     #[test]
