@@ -171,6 +171,7 @@ impl Instruction {
             0xE2 => Instruction::ld_ffc_a(),
             0xF2 => Instruction::ld_a_ffc(),
             0xF9 => Instruction::ld_sp_hl(),
+            0xF8 => Instruction::ld_hl_spi(),
             0xC0 | 0xD0 | 0xC8 | 0xD8 => Instruction::ret_cc(opcode),
             0xC3 => Instruction::jp(),
             0xE8 => Instruction::add_sp_i8(),
@@ -836,6 +837,18 @@ impl Instruction {
                 Register::SP,
                 Register::HL,
             ))])],
+            ..Default::default()
+        }
+    }
+
+    fn ld_hl_spi() -> Instruction {
+        Instruction {
+            cycles: (12, 0),
+            len: 2,
+            steps: vec![
+                Step::with_ops(vec![Op::Fetch(Fetch::E)]),
+                Step::with_ops(vec![Op::Load(Load::Register(Register::HL, Register::SPI))]),
+            ],
             ..Default::default()
         }
     }
@@ -1684,6 +1697,7 @@ pub enum Register {
     DE,
     AF,
     SP,
+    SPI,
     SPDec,
     PC,
     N,

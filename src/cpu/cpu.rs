@@ -1170,6 +1170,24 @@ impl CPU {
                 self.addr_bus.assert(addr);
                 return Ok(self.data_bus.read() as u16);
             }
+            instr::Register::SPI => {
+                let a = self.sp;
+                let b = (self.ir.e() as i16) as u16;
+                let result = a.wrapping_add(b);
+                if (a & 0xF) + (b & 0xF) > 0xF {
+                    self.set_flag(Flag::H);
+                } else {
+                    self.reset_flag(Flag::H);
+                }
+                if (a & 0xFF) + (b & 0xFF) > 0xFF {
+                    self.set_flag(Flag::C);
+                } else {
+                    self.reset_flag(Flag::C);
+                }
+                self.reset_flag(Flag::Z);
+                self.reset_flag(Flag::N);
+                return Ok(result);
+            }
             _ => todo!("source register {:?}", r),
         }
     }
@@ -2505,6 +2523,11 @@ mod test {
     #[test]
     fn test_add_sp_i8() {
         run_json_test(String::from("e8.json"))
+    }
+
+    #[test]
+    fn test_ld_hl_spi() {
+        run_json_test(String::from("f8.json"));
     }
 
     //#[test]
