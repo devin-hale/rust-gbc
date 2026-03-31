@@ -574,7 +574,6 @@ impl CPU {
             Op::CPL => self.handle_cpl(),
             Op::CCF => self.handle_ccf(),
             Op::CheckCond(c) => self.handle_check_cond(c),
-            _ => todo!("op {:?}", op),
         }
         Ok(())
     }
@@ -1219,66 +1218,6 @@ impl CPU {
         Ok(())
     }
 
-    fn jp(&mut self, r: R16) {
-        todo!("jp")
-        //let addr = self.src_r16(r);
-        //self.pc = addr;
-    }
-
-    fn jp_cond(&mut self, c: Cond, r: R16) -> bool {
-        if self.cc(c) {
-            self.jp(r);
-            return true;
-        } else {
-            self.fetch_word();
-            return false;
-        }
-    }
-
-    fn jr_word(&mut self, w: u16) {
-        self.pc = self.pc.wrapping_add(w);
-    }
-
-    fn call(&mut self) {
-        let pc = self.pc;
-        self.push(pc);
-        self.pc = self.fetch_word();
-    }
-
-    fn call_cond(&mut self, c: Cond) -> bool {
-        if self.cc(c) {
-            self.call();
-            return true;
-        }
-        false
-    }
-
-    fn rst(&mut self, t: T3) {
-        let pc = self.pc;
-        let val = t.val();
-        self.push(pc);
-        self.pc = val as u16;
-    }
-
-    pub fn pop(&mut self, r: R16) {
-        todo!("rework pop");
-        //let sp = self.sp;
-        //self.addr_bus.assert(addr);
-        //self.sp = self.sp.wrapping_add(2);
-        //let mut val = self.mem.read_word(sp);
-        //if r == R16::AF {
-        //    val &= 0xFFF0;
-        //}
-        //self.ld_r16(r, val)
-    }
-
-    pub fn push(&mut self, v: u16) {
-        todo!("rework push")
-        //self.sp -= 2;
-        //let sp = self.sp;
-        //self.mem.write_word(sp, v);
-    }
-
     fn cc(&self, c: Cond) -> bool {
         match c {
             Cond::Z => self.flag(Flag::Z),
@@ -1292,86 +1231,6 @@ impl CPU {
         let cond = self.cc(c);
         if !cond {
             self.ir.complete();
-        }
-    }
-
-    fn inc_r8(&mut self, r: R8) {
-        todo!("rework or trash")
-        //let val = self.src_r8(r);
-        //let result = match r {
-        //    R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).inc(),
-        //    R8::HL => {
-        //        let addr = self.hl().val();
-        //        self.mem.inc(addr)
-        //    }
-        //    _ => panic!("attempt to increment {}", r),
-        //};
-        //if result == 0 {
-        //    self.reset_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //if bit::check_overflow(val, 1, 3) {
-        //    self.set_flag(Flag::H);
-        //}
-    }
-
-    fn inc_r16(&mut self, r: R16) {
-        match r {
-            R16::DE => {
-                self.de().inc();
-            }
-            R16::BC => {
-                self.bc().inc();
-            }
-            R16::HL => {
-                self.hl().inc();
-            }
-            R16::SP => {
-                self.sp = self.sp.wrapping_add(1);
-            }
-            R16::PC => {
-                self.pc = self.pc.wrapping_add(1);
-            }
-            _ => panic!("attempt to increment {}", r),
-        }
-    }
-
-    fn dec(&mut self, d: DEC) {
-        match d {
-            DEC::R16(r) => self.dec_r16(r),
-            DEC::R8(r) => self.dec_r8(r),
-        }
-    }
-
-    fn dec_r8(&mut self, r: R8) {
-        todo!("rework or trash")
-        //let val = self.src_r8(r);
-        //let result = match r {
-        //    R8::A | R8::B | R8::C | R8::D | R8::E | R8::H | R8::L => self.reg(r).dec(),
-        //    R8::HL => {
-        //        let addr = self.hl().val();
-        //        self.mem.dec(addr)
-        //    }
-        //    _ => panic!("attempt to increment {}", r),
-        //};
-
-        //if result == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //if bit::check_borrow(val, 1, 4) {
-        //    self.set_flag(Flag::H);
-        //}
-        //self.set_flag(Flag::N);
-    }
-
-    fn dec_r16(&mut self, r: R16) {
-        match r {
-            R16::DE | R16::BC | R16::HL => {
-                self.reg_word(r).dec();
-            }
-            R16::SP => self.sp -= 1,
-            R16::PC => self.pc -= 1,
-            _ => panic!("attempt to decrement {}", r),
         }
     }
 
@@ -1854,11 +1713,6 @@ impl CPU {
         }
     }
 
-    //fn reti(&mut self) {
-    //    self.ret();
-    //    self.ime = true;
-    //}
-
     fn sla(&mut self, r: R8) {
         todo!("sla")
         //let v = self.src_r8(r);
@@ -1945,40 +1799,6 @@ impl CPU {
         //let i = b.val();
         //bit::set(&mut val, i);
         //self.ld_r8(r, val);
-    }
-
-    fn query_interrupt(&mut self) -> Option<Interrupt> {
-        todo!("query_interrupt");
-        //let mut mem = self.mem();
-        //let iflags = mem.interrupt_flags();
-        //if iflags.vblank() {
-        //    return Some(Interrupt::VBlank);
-        //}
-        //if iflags.lcd() {
-        //    return Some(Interrupt::STAT);
-        //}
-        //if iflags.timer() {
-        //    return Some(Interrupt::Timer);
-        //}
-        //if iflags.serial() {
-        //    return Some(Interrupt::Serial);
-        //}
-        //if iflags.joypad() {
-        //    return Some(Interrupt::Joypad);
-        //}
-        //None
-    }
-
-    fn handle_interrupt(&mut self, i: Interrupt) -> u8 {
-        todo!("handle_interrupt");
-        //// 8 t cycles
-        //self.mem().interrupt_flags().reset(i);
-        //// 8 t cycles
-        //self.ime = false;
-        //self.push(self.pc);
-        //// 4 t cycles
-        //self.pc = i.addr() as u16;
-        //20
     }
 }
 
