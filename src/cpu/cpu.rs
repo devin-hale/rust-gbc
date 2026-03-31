@@ -570,6 +570,7 @@ impl CPU {
             Op::RLCA => self.handle_rlca(),
             Op::RL(r) => self.handle_rl(r),
             Op::RRC(r) => self.handle_rrc(r),
+            Op::RRCA => self.handle_rrca(),
             Op::RR(r) => self.handle_rr(r),
             Op::DAA => self.handle_daa(),
             Op::SCF => self.handle_scf(),
@@ -1313,10 +1314,23 @@ impl CPU {
         self.set_flag_from_val(Flag::C, b0);
         let result = (val >> 1).wrapping_add(b0 << 7);
         self.load_register(r, result as u16).unwrap();
-
-        if r == instr::Register::A || result == 0 {
-            self.reset_flag(Flag::Z);
+        match result {
+            0 => self.set_flag(Flag::Z),
+            _ => self.reset_flag(Flag::Z),
         }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+    }
+
+    fn handle_rrca(&mut self) {
+        let r = instr::Register::A;
+        let val = self.src_register(r).unwrap() as u8;
+        let b0 = bit::get(val, 0);
+        self.set_flag_from_val(Flag::C, b0);
+        let result = (val >> 1).wrapping_add(b0 << 7);
+
+        self.load_register(r, result as u16).unwrap();
+        self.reset_flag(Flag::Z);
         self.reset_flag(Flag::N);
         self.reset_flag(Flag::H);
     }
@@ -2395,6 +2409,14 @@ mod test {
     fn test_rlc_r() {
         // RLC R
         for i in 0..=7u8 {
+            run_json_test(format!("cb {i:0>2x}.json"))
+        }
+    }
+
+    #[test]
+    fn test_rrc_r() {
+        // RRC R
+        for i in 8..=0xF {
             run_json_test(format!("cb {i:0>2x}.json"))
         }
     }
