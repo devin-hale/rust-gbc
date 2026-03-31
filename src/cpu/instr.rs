@@ -193,6 +193,7 @@ impl Instruction {
         match opcode {
             0..=7 => Instruction::rlc(opcode),
             8..=0xF => Instruction::rrc(opcode),
+            0x10..=0x17 => Instruction::rl(opcode),
             _ => panic!("invalid opcode {opcode}"),
         }
     }
@@ -258,6 +259,37 @@ impl Instruction {
                 prefixed: true,
                 eager: true,
                 steps: vec![Step::with_ops(vec![Op::RRC(r)])],
+                ..Default::default()
+            }
+        }
+    }
+
+    pub fn rl(opcode: u8) -> Instruction {
+        let r = match opcode & 0xF {
+            0 => Register::B,
+            1 => Register::C,
+            2 => Register::D,
+            3 => Register::E,
+            4 => Register::H,
+            5 => Register::L,
+            6 => Register::HL,
+            7 => Register::A,
+            _ => panic!("invalid opcode {opcode}"),
+        };
+        if r == Register::HL {
+            Instruction {
+                cycles: (16, 0),
+                len: 2,
+                steps: vec![
+                    Step::with_ops(vec![Op::Assert(r)]),
+                    Step::with_ops(vec![Op::RL(Register::Memory)]),
+                ],
+                ..Default::default()
+            }
+        } else {
+            Instruction {
+                eager: true,
+                steps: vec![Step::with_ops(vec![Op::RL(r)])],
                 ..Default::default()
             }
         }
@@ -857,7 +889,7 @@ impl Instruction {
         Instruction {
             cycles: (4, 0),
             len: 1,
-            steps: vec![Step::with_ops(vec![Op::RL(Register::A)])],
+            steps: vec![Step::with_ops(vec![Op::RLA])],
             eager: true,
             ..Default::default()
         }
@@ -1733,6 +1765,7 @@ pub enum Op {
     RLC(Register),
     RLCA,
     RL(Register),
+    RLA,
     RRC(Register),
     RRCA,
     RR(Register),
