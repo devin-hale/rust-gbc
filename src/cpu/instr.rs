@@ -45,6 +45,7 @@ pub struct Instruction {
 
     steps: Vec<Step>,
     eager: bool,
+    prefixed: bool,
     branched: bool,
     done: bool,
 }
@@ -184,7 +185,47 @@ impl Instruction {
             0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => {
                 panic!("invalid opcode {}", opcode)
             }
+            0xCB => Instruction::prefix(),
+        }
+    }
+
+    pub fn decode_prefix(opcode: u8) -> Instruction {
+        match opcode {
+            0..=7 => Instruction::rlc(opcode),
             _ => panic!("invalid opcode {opcode}"),
+        }
+    }
+
+    pub fn rlc(opcode: u8) -> Instruction {
+        let r = match opcode & 0xF {
+            0 => Register::B,
+            1 => Register::C,
+            2 => Register::D,
+            3 => Register::E,
+            4 => Register::H,
+            5 => Register::L,
+            6 => Register::HL,
+            7 => Register::A,
+            _ => panic!("invalid opcode {opcode}"),
+        };
+        if r == Register::HL {
+            Instruction {
+                cycles: (16, 0),
+                len: 2,
+                prefixed: true,
+                steps: vec![
+                    Step::with_ops(vec![Op::Assert(r)]),
+                    Step::with_ops(vec![Op::RLC(Register::Memory)]),
+                ],
+                ..Default::default()
+            }
+        } else {
+            Instruction {
+                prefixed: true,
+                eager: true,
+                steps: vec![Step::with_ops(vec![Op::RLC(r)])],
+                ..Default::default()
+            }
         }
     }
 
@@ -219,6 +260,14 @@ impl Instruction {
     pub fn disable_interrupts() -> Instruction {
         Instruction {
             steps: vec![Step::with_ops(vec![Op::DI])],
+            ..Default::default()
+        }
+    }
+
+    pub fn prefix() -> Instruction {
+        Instruction {
+            eager: true,
+            steps: vec![Step::with_ops(vec![Op::Prefix])],
             ..Default::default()
         }
     }
@@ -764,7 +813,7 @@ impl Instruction {
         Instruction {
             cycles: (4, 0),
             len: 1,
-            steps: vec![Step::with_ops(vec![Op::RLC(Register::A)])],
+            steps: vec![Step::with_ops(vec![Op::RLCA])],
             eager: true,
             ..Default::default()
         }
@@ -1360,6 +1409,7 @@ impl Default for Instruction {
             n16_hi: None,
             steps: vec![],
             eager: false,
+            prefixed: false,
             branched: false,
             done: false,
         }
@@ -1647,6 +1697,7 @@ pub enum Op {
     Inc(Inc),
     Dec(Dec),
     RLC(Register),
+    RLCA,
     RL(Register),
     RRC(Register),
     RR(Register),
@@ -1659,6 +1710,7 @@ pub enum Op {
     CCF,
     EI,
     DI,
+    Prefix,
 }
 
 #[derive(Debug, Clone, Copy)]

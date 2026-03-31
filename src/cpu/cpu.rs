@@ -52,7 +52,7 @@ pub struct CPU {
     stop: bool,
     halt: bool,
 
-    //prefix: bool,
+    prefix: bool,
     ime: bool,
     ie: Option<IE>,
 }
@@ -350,6 +350,7 @@ impl CPU {
             ir: Instruction::nop(),
             stop: false,
             halt: false,
+            prefix: false,
             ie: None,
             ime: false,
         }
@@ -566,6 +567,7 @@ impl CPU {
             Op::Inc(i) => self.handle_inc(i),
             Op::Dec(d) => self.handle_dec(d),
             Op::RLC(r) => self.handle_rlc(r),
+            Op::RLCA => self.handle_rlca(),
             Op::RL(r) => self.handle_rl(r),
             Op::RRC(r) => self.handle_rrc(r),
             Op::RR(r) => self.handle_rr(r),
@@ -574,6 +576,7 @@ impl CPU {
             Op::CPL => self.handle_cpl(),
             Op::CCF => self.handle_ccf(),
             Op::CheckCond(c) => self.handle_check_cond(c),
+            Op::Prefix => self.prefix = true,
         }
         Ok(())
     }
@@ -1210,7 +1213,13 @@ impl CPU {
         self.execute()?;
         if self.ir.done() {
             let opcode = self.fetch();
-            self.ir = Instruction::decode(opcode);
+            self.ir = match self.prefix {
+                false => Instruction::decode(opcode),
+                true => {
+                    self.prefix = false;
+                    Instruction::decode_prefix(opcode)
+                }
+            };
             if self.ir.eager() {
                 self.execute()?;
             }
@@ -1263,9 +1272,22 @@ impl CPU {
         self.set_flag_from_val(Flag::C, b7);
         let result = (val << 1) + b7;
         self.load_register(r, result as u16).unwrap();
-        if r == instr::Register::A || result == 0 {
-            self.reset_flag(Flag::Z);
+        match result {
+            0 => self.set_flag(Flag::Z),
+            _ => self.reset_flag(Flag::Z),
         }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+    }
+
+    fn handle_rlca(&mut self) {
+        let r = instr::Register::A;
+        let val = self.src_register(r).unwrap() as u8;
+        let b7 = bit::get(val, 7);
+        self.set_flag_from_val(Flag::C, b7);
+        let result = (val << 1) + b7;
+        self.load_register(r, result as u16).unwrap();
+        self.reset_flag(Flag::Z);
         self.reset_flag(Flag::N);
         self.reset_flag(Flag::H);
     }
@@ -2367,6 +2389,14 @@ mod test {
     #[test]
     fn test_ld_hl_spi() {
         run_json_test(String::from("f8.json"));
+    }
+
+    #[test]
+    fn test_rlc_r() {
+        // RLC R
+        for i in 0..=7u8 {
+            run_json_test(format!("cb {i:0>2x}.json"))
+        }
     }
 
     //#[test]
