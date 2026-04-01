@@ -198,6 +198,7 @@ impl Instruction {
             0x20..=0x27 => Instruction::sla(opcode),
             0x28..=0x2F => Instruction::sra(opcode),
             0x30..=0x37 => Instruction::swap(opcode),
+            0x38..=0x3F => Instruction::srl(opcode),
             _ => panic!("invalid opcode {opcode}"),
         }
     }
@@ -263,6 +264,39 @@ impl Instruction {
                 prefixed: true,
                 eager: true,
                 steps: vec![Step::with_ops(vec![Op::RRC(r)])],
+                ..Default::default()
+            }
+        }
+    }
+
+    pub fn srl(opcode: u8) -> Instruction {
+        let r = match opcode & 0xF {
+            8 => Register::B,
+            9 => Register::C,
+            0xA => Register::D,
+            0xB => Register::E,
+            0xC => Register::H,
+            0xD => Register::L,
+            0xE => Register::HL,
+            0xF => Register::A,
+            _ => panic!("invalid opcode {opcode}"),
+        };
+        if r == Register::HL {
+            Instruction {
+                cycles: (16, 0),
+                len: 2,
+                prefixed: true,
+                steps: vec![
+                    Step::with_ops(vec![Op::Assert(r)]),
+                    Step::with_ops(vec![Op::SRL(Register::Memory)]),
+                ],
+                ..Default::default()
+            }
+        } else {
+            Instruction {
+                prefixed: true,
+                eager: true,
+                steps: vec![Step::with_ops(vec![Op::SRL(r)])],
                 ..Default::default()
             }
         }
@@ -1909,6 +1943,7 @@ pub enum Op {
     SLA(Register),
     SRA(Register),
     Swap(Register),
+    SRL(Register),
     CheckCond(Cond),
     Stop,
     Halt,
