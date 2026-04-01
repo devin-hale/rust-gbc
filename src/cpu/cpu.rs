@@ -579,6 +579,7 @@ impl CPU {
             Op::SRL(r) => self.handle_srl(r),
             Op::Bit(r, b) => self.handle_bit(r, b),
             Op::Res(r, b) => self.handle_res(r, b),
+            Op::Set(r, b) => self.handle_set(r, b),
             Op::RRA => self.handle_rra(),
             Op::DAA => self.handle_daa(),
             Op::SCF => self.handle_scf(),
@@ -1858,12 +1859,10 @@ impl CPU {
         self.load_register(r, val as u16).unwrap();
     }
 
-    fn set(&mut self, b: B3, r: R8) {
-        todo!("set")
-        //let mut val = self.src_r8(r);
-        //let i = b.val();
-        //bit::set(&mut val, i);
-        //self.ld_r8(r, val);
+    fn handle_set(&mut self, r: instr::Register, b: u8) {
+        let mut val = self.src_register(r).unwrap() as u8;
+        bit::set(&mut val, b);
+        self.load_register(r, val as u16).unwrap();
     }
 }
 
@@ -2514,36 +2513,13 @@ mod test {
         }
     }
 
-    //#[test]
-    //fn jump_relative() {
-    //    let mem = Arc::new(Mutex::new(Memory::new()));
-    //    let mut cpu = CPU::new(&mem);
-    //    let byte = 0xFF;
-    //    let expected = cpu.pc + (byte as u16);
-    //    cpu.jr(byte);
-    //    assert_eq!(cpu.pc, expected);
-    //}
-
-    //#[test]
-    //fn jump_relative_word() {
-    //    let mem = Memory::arc();
-    //    let mut cpu = CPU::new(&mem);
-    //    let word = 0x00FF;
-    //    let expected = cpu.pc + word;
-    //    cpu.jr_word(word);
-    //    assert_eq!(cpu.pc, expected);
-    //}
-
-    //#[test]
-    //fn af() {
-    //    let mem = Arc::new(Mutex::new(Memory::new()));
-    //    let mut cpu = CPU::new(&mem);
-    //    let byte = 0b0110_0110;
-    //    let expected = ((byte as u16) << 8) | 0b1000_0000;
-    //    cpu.set_flag(Flag::Z);
-    //    cpu.a.write(byte);
-    //    assert_eq!(cpu.af().val(), expected);
-    //}
+    #[test]
+    fn test_set() {
+        // SET
+        for i in 0xC0..=0xFF {
+            run_json_test(format!("cb {i:x}.json"))
+        }
+    }
 
     #[test]
     fn flag_set() {

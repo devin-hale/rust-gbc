@@ -201,7 +201,7 @@ impl Instruction {
             0x38..=0x3F => Instruction::srl(opcode),
             0x40..=0x7F => Instruction::bit(opcode),
             0x80..=0xBF => Instruction::res(opcode),
-            _ => panic!("invalid opcode {opcode}"),
+            0xC0..=0xFF => Instruction::set(opcode),
         }
     }
 
@@ -544,6 +544,47 @@ impl Instruction {
             Instruction {
                 eager: true,
                 steps: vec![Step::with_ops(vec![Op::Res(r, b)])],
+                ..Default::default()
+            }
+        }
+    }
+
+    pub fn set(opcode: u8) -> Instruction {
+        let mut b = match opcode & 0xF0 {
+            0xC0 => 0,
+            0xD0 => 2,
+            0xE0 => 4,
+            0xF0 => 6,
+            _ => panic!("invalid opcode {opcode}"),
+        };
+        if (opcode & 0xF) > 7 {
+            b += 1;
+        }
+        let r = match opcode & 0xF {
+            0 | 8 => Register::B,
+            1 | 9 => Register::C,
+            2 | 0xA => Register::D,
+            3 | 0xB => Register::E,
+            4 | 0xC => Register::H,
+            5 | 0xD => Register::L,
+            6 | 0xE => Register::HL,
+            7 | 0xF => Register::A,
+            _ => panic!("invalid opcode {opcode}"),
+        };
+        if r == Register::HL {
+            Instruction {
+                cycles: (16, 0),
+                len: 2,
+                steps: vec![
+                    Step::with_ops(vec![Op::Assert(r)]),
+                    Step::with_ops(vec![Op::Set(Register::Memory, b)]),
+                ],
+                ..Default::default()
+            }
+        } else {
+            Instruction {
+                eager: true,
+                steps: vec![Step::with_ops(vec![Op::Set(r, b)])],
                 ..Default::default()
             }
         }
@@ -2030,6 +2071,7 @@ pub enum Op {
     SRL(Register),
     Bit(Register, u8),
     Res(Register, u8),
+    Set(Register, u8),
     CheckCond(Cond),
     Stop,
     Halt,
