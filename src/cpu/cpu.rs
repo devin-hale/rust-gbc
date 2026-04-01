@@ -578,6 +578,7 @@ impl CPU {
             Op::Swap(r) => self.handle_swap(r),
             Op::SRL(r) => self.handle_srl(r),
             Op::Bit(r, b) => self.handle_bit(r, b),
+            Op::Res(r, b) => self.handle_res(r, b),
             Op::RRA => self.handle_rra(),
             Op::DAA => self.handle_daa(),
             Op::SCF => self.handle_scf(),
@@ -1851,12 +1852,10 @@ impl CPU {
         self.set_flag(Flag::H);
     }
 
-    fn res(&mut self, b: B3, r: R8) {
-        todo!("bit")
-        //let mut val = self.src_r8(r);
-        //let i = b.val();
-        //bit::reset(&mut val, i);
-        //self.ld_r8(r, val);
+    fn handle_res(&mut self, r: instr::Register, b: u8) {
+        let mut val = self.src_register(r).unwrap() as u8;
+        bit::reset(&mut val, b);
+        self.load_register(r, val as u16).unwrap();
     }
 
     fn set(&mut self, b: B3, r: R8) {
@@ -2503,6 +2502,14 @@ mod test {
     fn test_bit() {
         // BIT
         for i in 0x40..=0x7F {
+            run_json_test(format!("cb {i:x}.json"))
+        }
+    }
+
+    #[test]
+    fn test_res() {
+        // RES
+        for i in 0x80..=0xBF {
             run_json_test(format!("cb {i:x}.json"))
         }
     }
