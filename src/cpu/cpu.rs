@@ -573,6 +573,7 @@ impl CPU {
             Op::RRC(r) => self.handle_rrc(r),
             Op::RRCA => self.handle_rrca(),
             Op::RR(r) => self.handle_rr(r),
+            Op::SLA(r) => self.handle_sla(r),
             Op::RRA => self.handle_rra(),
             Op::DAA => self.handle_daa(),
             Op::SCF => self.handle_scf(),
@@ -1776,18 +1777,18 @@ impl CPU {
         }
     }
 
-    fn sla(&mut self, r: R8) {
-        todo!("sla")
-        //let v = self.src_r8(r);
-        //let v7 = bit::get(v, 7);
-        //self.set_flag_from_val(Flag::C, v7);
-        //let v = v << 1;
-        //if v == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //self.reset_flag(Flag::H);
-        //self.ld_r8(r, v);
+    fn handle_sla(&mut self, r: instr::Register) {
+        let v = self.src_register(r).unwrap() as u8;
+        let v7 = bit::get(v, 7);
+        self.set_flag_from_val(Flag::C, v7);
+        let v = v << 1;
+        match v {
+            0 => self.set_flag(Flag::Z),
+            _ => self.reset_flag(Flag::Z),
+        }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+        self.load_register(r, v as u16).unwrap();
     }
 
     fn sra(&mut self, r: R8) {
@@ -2461,6 +2462,14 @@ mod test {
         // RR R
         for i in 8..=0xF {
             run_json_test(format!("cb 1{i:x}.json"))
+        }
+    }
+
+    #[test]
+    fn test_sla_r() {
+        // SLA R
+        for i in 0..=7u8 {
+            run_json_test(format!("cb 2{i:x}.json"))
         }
     }
 
