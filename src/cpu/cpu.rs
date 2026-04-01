@@ -575,6 +575,7 @@ impl CPU {
             Op::RR(r) => self.handle_rr(r),
             Op::SLA(r) => self.handle_sla(r),
             Op::SRA(r) => self.handle_sra(r),
+            Op::Swap(r) => self.handle_swap(r),
             Op::RRA => self.handle_rra(),
             Op::DAA => self.handle_daa(),
             Op::SCF => self.handle_scf(),
@@ -1808,19 +1809,19 @@ impl CPU {
         self.load_register(r, v as u16).unwrap();
     }
 
-    fn swap(&mut self, r: R8) {
-        todo!("swap")
-        //let v = self.src_r8(r);
-        //let l = (v & 0b1111) << 4;
-        //let h = (v & 0b1111_0000) >> 4;
-        //let v = l | h;
-        //self.ld_r8(r, v);
-        //if v == 0 {
-        //    self.set_flag(Flag::Z);
-        //}
-        //self.reset_flag(Flag::N);
-        //self.reset_flag(Flag::H);
-        //self.reset_flag(Flag::C);
+    fn handle_swap(&mut self, r: instr::Register) {
+        let v = self.src_register(r).unwrap() as u8;
+        let l = (v & 0b1111) << 4;
+        let h = (v & 0b1111_0000) >> 4;
+        let v = l | h;
+        self.load_register(r, v as u16).unwrap();
+        match v {
+            0 => self.set_flag(Flag::Z),
+            _ => self.reset_flag(Flag::Z),
+        }
+        self.reset_flag(Flag::N);
+        self.reset_flag(Flag::H);
+        self.reset_flag(Flag::C);
     }
 
     fn srl(&mut self, r: R8) {
@@ -2479,6 +2480,14 @@ mod test {
         // SRA R
         for i in 8..=0xF {
             run_json_test(format!("cb 2{i:x}.json"))
+        }
+    }
+
+    #[test]
+    fn test_swap_r() {
+        // SWAP R
+        for i in 0..=7 {
+            run_json_test(format!("cb 3{i:x}.json"))
         }
     }
 

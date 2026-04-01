@@ -197,6 +197,7 @@ impl Instruction {
             0x18..=0x1F => Instruction::rr(opcode),
             0x20..=0x27 => Instruction::sla(opcode),
             0x28..=0x2F => Instruction::sra(opcode),
+            0x30..=0x37 => Instruction::swap(opcode),
             _ => panic!("invalid opcode {opcode}"),
         }
     }
@@ -295,6 +296,39 @@ impl Instruction {
                 prefixed: true,
                 eager: true,
                 steps: vec![Step::with_ops(vec![Op::SLA(r)])],
+                ..Default::default()
+            }
+        }
+    }
+
+    pub fn swap(opcode: u8) -> Instruction {
+        let r = match opcode & 0xF {
+            0 => Register::B,
+            1 => Register::C,
+            2 => Register::D,
+            3 => Register::E,
+            4 => Register::H,
+            5 => Register::L,
+            6 => Register::HL,
+            7 => Register::A,
+            _ => panic!("invalid opcode {opcode}"),
+        };
+        if r == Register::HL {
+            Instruction {
+                cycles: (16, 0),
+                len: 2,
+                prefixed: true,
+                steps: vec![
+                    Step::with_ops(vec![Op::Assert(r)]),
+                    Step::with_ops(vec![Op::Swap(Register::Memory)]),
+                ],
+                ..Default::default()
+            }
+        } else {
+            Instruction {
+                prefixed: true,
+                eager: true,
+                steps: vec![Step::with_ops(vec![Op::Swap(r)])],
                 ..Default::default()
             }
         }
@@ -1874,6 +1908,7 @@ pub enum Op {
     RRA,
     SLA(Register),
     SRA(Register),
+    Swap(Register),
     CheckCond(Cond),
     Stop,
     Halt,
