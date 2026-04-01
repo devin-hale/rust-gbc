@@ -18,9 +18,8 @@ use serde::{
 use serde_json::Value;
 use thiserror::Error;
 
-use super::instr::{self, B3, Cond, Instruction, Mem, R8, T3};
+use super::instr::{self, ADC, Add, Cond, Dec, Fetch, Inc, Instruction, Load, Mem, Op, SBC, Sub};
 use crate::{
-    cpu::instr::{ADC, Add, Dec, Fetch, Inc, Load, Op, SBC, Sub},
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
 };

@@ -1751,48 +1751,6 @@ impl Default for Instruction {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum R8 {
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-    HL,
-    A,
-    N8,
-}
-
-pub const R8VALUES: [R8; 9] = [
-    R8::B,
-    R8::C,
-    R8::D,
-    R8::E,
-    R8::H,
-    R8::L,
-    R8::HL,
-    R8::A,
-    R8::N8,
-];
-
-impl Display for R8 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let r8: &'static str = match self {
-            R8::B => "b",
-            R8::C => "c",
-            R8::D => "d",
-            R8::E => "e",
-            R8::H => "h",
-            R8::L => "l",
-            R8::HL => "[hl]",
-            R8::A => "a",
-            R8::N8 => "n8",
-        };
-        write!(f, "{}", r8)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mem {
     HL,
     BC,
@@ -1853,54 +1811,6 @@ impl Display for Cond {
             Cond::C => "c",
         };
         write!(f, "{}", r16)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct B3(u8);
-
-impl B3 {
-    pub fn val(&self) -> u8 {
-        self.0
-    }
-}
-
-impl From<u8> for B3 {
-    fn from(value: u8) -> Self {
-        B3(value & 0x3)
-    }
-}
-
-impl Display for B3 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct T3(u8);
-
-impl T3 {
-    pub fn val(&self) -> u8 {
-        self.0
-    }
-}
-
-impl From<u8> for T3 {
-    fn from(value: u8) -> Self {
-        T3(value * 8)
-    }
-}
-
-impl From<T3> for u8 {
-    fn from(value: T3) -> Self {
-        value.0
-    }
-}
-
-impl Display for T3 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "0x{:0>2x}", self.0)
     }
 }
 
