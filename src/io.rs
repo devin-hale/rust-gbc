@@ -1,4 +1,4 @@
-use crate::{cpu::Interrupt, utils::bit};
+use crate::{memory::Memory, utils::bit};
 
 pub const DIV: usize = 0xFF04;
 const TIMER_COUNTER: usize = 0xFF05;
@@ -10,100 +10,68 @@ const OBP0: usize = 0xFF48;
 const OBP1: usize = 0xFF49;
 const BGP: usize = 0xFF47;
 
-pub struct InterruptRegister<'i>(&'i mut u8);
+pub enum IFlag {
+    VBlank,
+    LCD,
+    Timer,
+    Serial,
+    Joypad,
+}
 
-impl<'i> InterruptRegister<'i> {
-    pub fn vblank(&self) -> bool {
-        bit::is_set(*self.0, 0)
+pub enum IRType {
+    IE,
+    IF,
+}
+
+pub struct IR {
+    ir_type: IRType,
+    mem: Memory,
+}
+
+impl IR {
+    pub fn new(ir_type: IRType, mem: Memory) -> Self {
+        Self { ir_type, mem }
     }
 
-    #[inline(always)]
-    pub fn vblank_set(&mut self) {
-        bit::set(self.0, 0)
-    }
-
-    #[inline(always)]
-    pub fn vblank_reset(&mut self) {
-        bit::reset(self.0, 0)
-    }
-
-    #[inline(always)]
-    pub fn lcd(&self) -> bool {
-        bit::is_set(*self.0, 1)
-    }
-
-    #[inline(always)]
-    pub fn lcd_set(&mut self) {
-        bit::set(self.0, 1)
-    }
-
-    #[inline(always)]
-    pub fn lcd_reset(&mut self) {
-        bit::reset(self.0, 1)
-    }
-
-    #[inline(always)]
-    pub fn timer(&self) -> bool {
-        bit::is_set(*self.0, 2)
-    }
-
-    #[inline(always)]
-    pub fn timer_set(&mut self) {
-        bit::set(self.0, 2)
-    }
-
-    #[inline(always)]
-    pub fn timer_reset(&mut self) {
-        bit::reset(self.0, 2)
-    }
-
-    #[inline(always)]
-    pub fn serial(&self) -> bool {
-        bit::is_set(*self.0, 3)
-    }
-
-    #[inline(always)]
-    pub fn serial_set(&mut self) {
-        bit::set(self.0, 3)
-    }
-
-    #[inline(always)]
-    pub fn serial_reset(&mut self) {
-        bit::reset(self.0, 3)
-    }
-
-    #[inline(always)]
-    pub fn joypad(&self) -> bool {
-        bit::is_set(*self.0, 4)
-    }
-
-    #[inline(always)]
-    pub fn joypad_set(&mut self) {
-        bit::set(self.0, 4)
-    }
-
-    #[inline(always)]
-    pub fn joypad_reset(&mut self) {
-        bit::reset(self.0, 4)
-    }
-
-    pub fn reset(&mut self, i: Interrupt) {
-        match i {
-            Interrupt::VBlank => self.vblank_reset(),
-            Interrupt::STAT => self.lcd_reset(),
-            Interrupt::Serial => self.serial_reset(),
-            Interrupt::Timer => self.timer_reset(),
-            Interrupt::Joypad => self.joypad_reset(),
+    fn register(&self) -> u8 {
+        match self.ir_type {
+            IRType::IE => *self.mem.ie(),
+            IRType::IF => self.mem.read(0xFF0F),
         }
     }
 
-    pub fn set(&mut self, i: Interrupt) {
-        match i {
-            Interrupt::VBlank => self.vblank_set(),
-            Interrupt::STAT => self.lcd_set(),
-            Interrupt::Serial => self.serial_set(),
-            Interrupt::Timer => self.timer_set(),
-            Interrupt::Joypad => self.joypad_set(),
+    fn set_register(&mut self, val: u8) {
+        match self.ir_type {
+            IRType::IE => *self.mem.ie() = val,
+            IRType::IF => self.mem.write(0xFF0F, val),
+        }
+    }
+
+    pub fn flag(&self, f: IFlag) -> u8 {
+        let r = self.register();
+        bit::get(r, f as u8)
+    }
+
+    fn is_set(&self, f: IFlag) -> bool {
+        self.flag(f) != 0
+    }
+
+    fn set_flag(&mut self, f: IFlag) {
+        let mut r = self.register();
+        bit::set(&mut r, f as u8);
+        self.set_register(r);
+    }
+
+    fn reset_flag(&mut self, f: IFlag) {
+        let mut r = self.register();
+        bit::reset(&mut r, f as u8);
+        self.set_register(r);
+    }
+
+    fn set_flag_from_val(&mut self, f: IFlag, val: u8) {
+        match val {
+            0 => self.set_flag(f),
+            _ => self.reset_flag(f),
         }
     }
 }

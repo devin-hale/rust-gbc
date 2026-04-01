@@ -40,7 +40,6 @@ const UNUSED_END: usize = 0xFEFF;
 const UNUSED_LEN: usize = UNUSED_END - UNUSED_START + 1;
 
 const IO_START: usize = 0xFF00;
-
 const IO_END: usize = 0xFF7F;
 const IO_LEN: usize = IO_END - IO_START + 1;
 
