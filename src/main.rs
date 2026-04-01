@@ -20,8 +20,8 @@ use crate::{
     memory::Memory,
 };
 
-mod io;
 mod cpu;
+mod io;
 mod memory;
 mod ppu;
 mod utils;

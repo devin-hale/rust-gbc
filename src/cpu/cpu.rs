@@ -1,3 +1,4 @@
+use core::error;
 use std::{
     ops::AddAssign,
     sync::{Arc, Mutex, MutexGuard},
@@ -17,21 +18,12 @@ use serde::{
 use serde_json::Value;
 use thiserror::Error;
 
-use super::instr::{self, ADD, B3, Cond, DEC, INC, Instruction, LD, Mem, R8, R16, T3};
+use super::instr::{self, B3, Cond, Instruction, Mem, R8, T3};
 use crate::{
-    cpu::instr::{ADC, Add, Dec, Error as IError, Fetch, Inc, JR, LDH, Load, Op, SBC, Sub},
+    cpu::instr::{ADC, Add, Dec, Fetch, Inc, Load, Op, SBC, Sub},
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
 };
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Instruction error")]
-    InstructionError(#[from] IError),
-
-    #[error("CPU: unknown error")]
-    Unknown,
-}
 
 pub struct CPU {
     a: Register,
@@ -498,7 +490,7 @@ impl CPU {
         (high << 8) | low
     }
 
-    pub fn execute(&mut self) -> Result<(), Error> {
+    pub fn execute(&mut self) -> Result<(), ()> {
         if self.ir.done() {
             return Ok(());
         }
@@ -541,7 +533,7 @@ impl CPU {
         Ok(())
     }
 
-    fn execute_op(&mut self, op: Op) -> Result<(), Error> {
+    fn execute_op(&mut self, op: Op) -> Result<(), ()> {
         match op {
             Op::NOP => {}
             Op::Stop => self.handle_stop(),
@@ -591,7 +583,7 @@ impl CPU {
         Ok(())
     }
 
-    fn handle_fetch(&mut self, f: Fetch) -> Result<(), Error> {
+    fn handle_fetch(&mut self, f: Fetch) -> Result<(), ()> {
         match f {
             Fetch::NnLo => {
                 let val = self.fetch();
@@ -1019,7 +1011,7 @@ impl CPU {
         }
     }
 
-    fn handle_load(&mut self, l: Load) -> Result<(), Error> {
+    fn handle_load(&mut self, l: Load) -> Result<(), ()> {
         match l {
             Load::Register(dst, src) => {
                 let val = self.src_register(src)?;
@@ -1033,7 +1025,7 @@ impl CPU {
         Ok(())
     }
 
-    fn load_register(&mut self, dst: instr::Register, val: u16) -> Result<(), Error> {
+    fn load_register(&mut self, dst: instr::Register, val: u16) -> Result<(), ()> {
         match dst {
             instr::Register::BC => self.bc().write(val),
             instr::Register::DE => self.de().write(val),
@@ -1152,7 +1144,7 @@ impl CPU {
         }
     }
 
-    fn src_register(&mut self, r: instr::Register) -> Result<u16, Error> {
+    fn src_register(&mut self, r: instr::Register) -> Result<u16, ()> {
         match r {
             instr::Register::NN => Ok(self.ir.n16()),
             instr::Register::N => Ok(self.ir.n8() as u16),
@@ -1213,7 +1205,7 @@ impl CPU {
         self.stop = true;
     }
 
-    pub fn tick(&mut self) -> Result<(), Error> {
+    pub fn tick(&mut self) -> Result<(), ()> {
         if self.stop {
             return Ok(());
         }
@@ -1250,29 +1242,6 @@ impl CPU {
         let cond = self.cc(c);
         if !cond {
             self.ir.complete();
-        }
-    }
-
-    fn reg(&mut self, r: R8) -> &mut Register {
-        match r {
-            R8::A => &mut self.a,
-            R8::B => &mut self.b,
-            R8::C => &mut self.c,
-            R8::D => &mut self.d,
-            R8::E => &mut self.e,
-            R8::H => &mut self.h,
-            R8::L => &mut self.l,
-            R8::N8 => panic!("attempt to return n8 as 8 bit register"),
-            R8::HL => panic!("attempt to return hl as 8 bit register"),
-        }
-    }
-
-    fn reg_word<'a>(&'a mut self, r: R16) -> Word<'a> {
-        match r {
-            R16::DE => self.de(),
-            R16::BC => self.bc(),
-            R16::HL => self.hl(),
-            _ => panic!("attempt to return {} as a 16 bit register", r),
         }
     }
 

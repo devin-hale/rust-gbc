@@ -4,33 +4,6 @@ use thiserror::Error;
 
 use crate::utils::bit;
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("'0x{0:x}' is not a valid R8 value")]
-    InvalidR8(u8),
-
-    #[error("'0x{0:x}' is not a valid R16 value")]
-    InvalidR16(u8),
-
-    #[error("'0x{0:x}' is not a valid R16Stk value")]
-    InvalidR16Stk(u8),
-
-    #[error("'0x{0:x}' is not a valid R16Mem value")]
-    InvalidR16Mem(u8),
-
-    #[error("'0x{0:x}' is not a valid Cond value")]
-    InvalidCond(u8),
-
-    #[error("invalid opcode: 0x{0:x}")]
-    InvalidOpCode(u8),
-
-    #[error("opcode '0x{0:x}' is unimplemented")]
-    Unimplemented(u8),
-
-    #[error("unknown")]
-    Unknown,
-}
-
 #[derive(Debug, Clone)]
 pub struct Instruction {
     opcode: u8,
@@ -1802,23 +1775,6 @@ pub const R8VALUES: [R8; 9] = [
     R8::N8,
 ];
 
-impl TryFrom<u8> for R8 {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(R8::B),
-            1 => Ok(R8::C),
-            2 => Ok(R8::D),
-            3 => Ok(R8::E),
-            4 => Ok(R8::H),
-            5 => Ok(R8::L),
-            6 => Ok(R8::HL),
-            7 => Ok(R8::A),
-            _ => Err(Error::InvalidR8(value)),
-        }
-    }
-}
-
 impl Display for R8 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let r8: &'static str = match self {
@@ -1851,13 +1807,13 @@ pub enum Mem {
 }
 
 impl Mem {
-    pub fn r16mem(value: u8) -> Result<Mem, Error> {
+    pub fn r16mem(value: u8) -> Result<Mem, ()> {
         match value {
             0 => Ok(Mem::BC),
             1 => Ok(Mem::DE),
             2 => Ok(Mem::HLI),
             3 => Ok(Mem::HLD),
-            _ => Err(Error::InvalidR16Mem(value).into()),
+            _ => panic!("invalid mem value"),
         }
     }
 }
@@ -1881,75 +1837,11 @@ impl Display for Mem {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum R16 {
-    BC,
-    DE,
-    HL,
-    SP,
-    AF,
-    PC,
-    N16,
-}
-
-impl R16 {
-    pub fn r16stk(v: u8) -> Result<R16, Error> {
-        match v {
-            0 => Ok(R16::BC),
-            1 => Ok(R16::DE),
-            2 => Ok(R16::HL),
-            3 => Ok(R16::AF),
-            _ => Err(Error::InvalidR16Stk(v).into()),
-        }
-    }
-}
-
-impl TryFrom<u8> for R16 {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(R16::BC),
-            1 => Ok(R16::DE),
-            2 => Ok(R16::HL),
-            3 => Ok(R16::SP),
-            _ => Err(Error::InvalidR16(value).into()),
-        }
-    }
-}
-
-impl Display for R16 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let r16: &'static str = match self {
-            R16::BC => "bc",
-            R16::DE => "de",
-            R16::HL => "hl",
-            R16::SP => "sp",
-            R16::AF => "af",
-            R16::PC => "pc",
-            R16::N16 => "n16",
-        };
-        write!(f, "{}", r16)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Cond {
     NZ,
     Z,
     NC,
     C,
-}
-
-impl TryFrom<u8> for Cond {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Cond::NZ),
-            1 => Ok(Cond::Z),
-            2 => Ok(Cond::NC),
-            3 => Ok(Cond::C),
-            _ => Err(Error::InvalidCond(value).into()),
-        }
-    }
 }
 
 impl Display for Cond {
@@ -2193,113 +2085,5 @@ impl Register {
             Self::BC | Self::HL | Self::DE | Self::AF | Self::SP | Self::PC | Self::NN => true,
             _ => false,
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ADD {
-    A(R8),
-    HL(R16),
-    SP,
-}
-
-impl Display for ADD {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = String::from("add ");
-        match self {
-            ADD::A(r) => s.push_str(format!("a, {}", r).as_str()),
-            ADD::HL(r) => s.push_str(format!("hl, {}", r).as_str()),
-            ADD::SP => s.push_str("sp, e8"),
-        }
-        write!(f, "{}", s)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum LD {
-    R8(R8, R8),
-    R16(R16, R16),
-    MemR8(Mem, R8),
-    R8Mem(R8, Mem),
-    MemR16(Mem, R16),
-    HLSPN,
-}
-
-impl Display for LD {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = String::from("ld ");
-        match self {
-            LD::R16(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
-            LD::R8(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
-            LD::MemR8(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
-            LD::R8Mem(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
-            LD::MemR16(a, b) => s.push_str(format!("{}, {}", a, b).as_str()),
-            LD::HLSPN => s.push_str("hl, sp + n8"),
-        }
-        write!(f, "{}", s)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum LDH {
-    A(Mem),
-    Mem(Mem),
-}
-
-impl Display for LDH {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            LDH::A(m) => format!("a, {}", m),
-            LDH::Mem(m) => format!("{}, a", m),
-        };
-        write!(f, "ldh {}", s)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum INC {
-    R8(R8),
-    R16(R16),
-}
-
-impl Display for INC {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let o = match self {
-            INC::R8(r) => format!("{}", r),
-            INC::R16(r) => format!("{}", r),
-        };
-        write!(f, "inc {}", o)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum DEC {
-    R8(R8),
-    R16(R16),
-}
-
-impl Display for DEC {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let o = match self {
-            DEC::R8(r) => format!("{}", r),
-            DEC::R16(r) => format!("{}", r),
-        };
-        write!(f, "dec {}", o)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum JR {
-    N8,
-    Cond(Cond),
-}
-
-impl Display for JR {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            JR::N8 => String::from("n8"),
-            JR::Cond(c) => format!("{}, n8", c),
-        };
-        write!(f, "jr {}", s)
     }
 }
