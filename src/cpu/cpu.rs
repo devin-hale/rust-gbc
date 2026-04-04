@@ -1193,10 +1193,10 @@ impl CPU {
         if self.stop {
             return Ok(());
         }
+        self.check_interrupt();
         if self.halt {
             return Ok(());
         }
-        self.check_interrupt();
 
         self.execute()?;
         if self.ir.done() {
@@ -1220,6 +1220,7 @@ impl CPU {
             && let Some(flag) = self.if_table.active()
             && self.ie_table.is_set(flag)
         {
+            self.halt = false;
             self.if_table.reset_flag(flag);
             self.ime = false;
             self.ir = Instruction::interrupt(flag.addr());

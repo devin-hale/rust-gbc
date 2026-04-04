@@ -3,6 +3,8 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
+use crate::io::DIV;
+
 const ROM_BANK_0_START: usize = 0x0000;
 const ROM_BANK_0_END: usize = 0x03FFF;
 const ROM_BANK_0_LEN: usize = ROM_BANK_0_END + 1;
@@ -187,15 +189,15 @@ impl Memory {
     }
 
     pub fn write_word(&mut self, addr: u16, data: u16) {
-        let low = (data & 0x00FF) as u8;
-        let high = ((data & 0xFF00) >> 8) as u8;
+        let mut low = (data & 0x00FF) as u8;
+        let mut high = ((data & 0xFF00) >> 8) as u8;
 
-        //if addr as usize == DIV {
-        //    low = 0;
-        //}
-        //if (addr as usize) + 1 == DIV {
-        //    high = 0;
-        //}
+        if addr as usize == DIV {
+            low = 0;
+        }
+        if (addr as usize) + 1 == DIV {
+            high = 0;
+        }
 
         self.write(addr, low);
         self.write(addr + 1, high);
@@ -209,10 +211,10 @@ impl Memory {
     }
 
     pub fn dec(&mut self, addr: u16) -> u8 {
-        //if addr as usize == DIV {
-        //    self.write(addr, 0);
-        //    return 0;
-        //}
+        if addr as usize == DIV {
+            self.write(addr, 0);
+            return 0;
+        }
         let mut val = self.read(addr);
         val -= 1;
         self.write(addr, val);
