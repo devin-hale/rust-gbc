@@ -2,10 +2,12 @@ use core::error;
 use std::{
     ops::AddAssign,
     sync::{Arc, Mutex, MutexGuard},
+    time::Instant,
 };
 
 pub const MASTER_CLOCK_FREQ: u64 = 4_194_304; // Hz
 pub const T_CYCLE_PRD_NS: u64 = (1 * 1000 * 1000 * 1000) / MASTER_CLOCK_FREQ; // ns
+pub const M_CYCLE_PRD_NS: u64 = T_CYCLE_PRD_NS / 4; // ns
 pub const DIV_CLOCK_FREQ: u64 = 16_384; // Hz
 pub const DIV_CLOCK_PRD_NS: u64 = (1 * 1000 * 1000 * 1000) / DIV_CLOCK_FREQ; // ns
 const CYCLES_PER_DIV_TICK: u64 = DIV_CLOCK_PRD_NS / T_CYCLE_PRD_NS;
@@ -50,6 +52,8 @@ pub struct CPU {
     prefix: bool,
     ime: bool,
     ie: Option<IE>,
+
+    last_tick: Option<Instant>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -329,6 +333,7 @@ impl CPU {
             ime: false,
             ie_table: IR::new(IRType::IE, mem.clone()),
             if_table: IR::new(IRType::IF, mem.clone()),
+            last_tick: None,
         }
     }
 
@@ -1187,6 +1192,17 @@ impl CPU {
 
     fn handle_stop(&mut self) {
         self.stop = true;
+    }
+
+    pub fn advance_to(&mut self, t: Instant) {
+        let ticks = match self.last_tick {
+            None => 0,
+            Some(lc) => t.duration_since(lc).as_nanos() / M_CYCLE_PRD_NS as u128,
+        };
+        for _ in 0..ticks {
+            self.tick().unwrap();
+        }
+        self.last_tick = Some(t);
     }
 
     pub fn tick(&mut self) -> Result<(), ()> {
