@@ -1729,6 +1729,29 @@ impl Instruction {
             }
         }
     }
+
+    pub fn interrupt(irq: u16) -> Instruction {
+        Instruction {
+            cycles: (24, 0),
+            len: 3,
+            steps: vec![
+                Step::with_ops(vec![Op::NOP]),
+                Step::with_ops(vec![Op::NOP]),
+                Step::with_ops(vec![
+                    Op::Dec(Dec::Register(Register::SP)),
+                    Op::Assert(Register::SP),
+                    Op::Load(Load::MemoryHi(Register::PC)),
+                ]),
+                Step::with_ops(vec![
+                    Op::Dec(Dec::Register(Register::SP)),
+                    Op::Assert(Register::SP),
+                    Op::Load(Load::MemoryLo(Register::PC)),
+                    Op::Load(Load::IRQ(irq)),
+                ]),
+            ],
+            ..Default::default()
+        }
+    }
 }
 
 impl Default for Instruction {
@@ -1938,6 +1961,7 @@ pub enum Load {
     Memory(Register),
     MemoryLo(Register),
     MemoryHi(Register),
+    IRQ(u16),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

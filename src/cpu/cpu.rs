@@ -20,6 +20,7 @@ use thiserror::Error;
 
 use super::instr::{self, ADC, Add, Cond, Dec, Fetch, Inc, Instruction, Load, Mem, Op, SBC, Sub};
 use crate::{
+    io::{IR, IRType},
     memory::{self, AddressBus, DataBus, Memory},
     utils::bit,
 };
@@ -42,6 +43,9 @@ pub struct CPU {
     ir: Instruction,
     stop: bool,
     halt: bool,
+
+    ie_table: IR,
+    if_table: IR,
 
     prefix: bool,
     ime: bool,
@@ -209,27 +213,6 @@ impl<'de> de::Deserialize<'de> for CycleState {
 }
 
 #[derive(Clone, Copy)]
-pub enum Interrupt {
-    VBlank,
-    STAT,
-    Timer,
-    Serial,
-    Joypad,
-}
-
-impl Interrupt {
-    fn addr(&self) -> u8 {
-        match self {
-            Interrupt::VBlank => 0x40,
-            Interrupt::STAT => 0x48,
-            Interrupt::Timer => 0x50,
-            Interrupt::Serial => 0x58,
-            Interrupt::Joypad => 0x60,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
 pub enum IE {
     Primed,
     Enable,
@@ -344,6 +327,8 @@ impl CPU {
             prefix: false,
             ie: None,
             ime: false,
+            ie_table: IR::new(IRType::IE, mem.clone()),
+            if_table: IR::new(IRType::IF, mem.clone()),
         }
     }
 
@@ -1019,7 +1004,7 @@ impl CPU {
             Load::Memory(src) => self.load_memory(src),
             Load::MemoryLo(src) => self.load_memory_lo(src),
             Load::MemoryHi(src) => self.load_memory_hi(src),
-            //_ => todo!("load {:?}", l),
+            Load::IRQ(irq) => self.pc = irq,
         }
         Ok(())
     }
@@ -1211,6 +1196,8 @@ impl CPU {
         if self.halt {
             return Ok(());
         }
+        self.check_interrupt();
+
         self.execute()?;
         if self.ir.done() {
             let opcode = self.fetch();
@@ -1226,6 +1213,17 @@ impl CPU {
             }
         }
         Ok(())
+    }
+
+    pub fn check_interrupt(&mut self) {
+        if self.ime
+            && let Some(flag) = self.if_table.active()
+            && self.ie_table.is_set(flag)
+        {
+            self.if_table.reset_flag(flag);
+            self.ime = false;
+            self.ir = Instruction::interrupt(flag.addr());
+        }
     }
 
     fn cc(&self, c: Cond) -> bool {
@@ -2488,6 +2486,8 @@ mod test {
             run_json_test(format!("cb {i:x}.json"))
         }
     }
+
+    // Tests for CPU Methods
 
     #[test]
     fn flag_set() {
